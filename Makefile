@@ -14,7 +14,7 @@ endif
 export TEXMFHOME ?= lsst-texmf/texmf
 
 # Add aglossary.tex as a dependancy here if you want a glossary
-$(DOCNAME).pdf: $(tex) meta.tex local.bib
+$(DOCNAME).pdf: $(tex) meta.tex local.bib authors.tex
 	latexmk -bibtex -xelatex -f $(DOCNAME)
 #	makeglossaries $(DOCNAME)
 #	xelatex $(SRC)
@@ -24,6 +24,9 @@ $(DOCNAME).pdf: $(tex) meta.tex local.bib
 # Acronym tool allows for selection of acronyms based on tags - you may want more than DM
 acronyms.tex: $(tex) myacronyms.txt
 	$(TEXMFHOME)/../bin/generateAcronyms.py -t "DM" $(tex)
+
+authors.tex:  authors.yaml
+	python3 $(TEXMFHOME)/../bin/db2authors.py > authors.tex
 
 # If you want a glossary you must manually run generateAcronyms.py  -gu to put the \gls in your files.
 aglossary.tex :$(tex) myacronyms.txt
