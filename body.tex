@@ -1,24 +1,45 @@
 \section{Background}
 
-In April 2019, LSST DM began a proof of concept project with the AWS and HTCondor teams to explore whether a cloud deployment of the Data Release Production (DRP) is feasible. The execution plan of the project is described in DMTN-114.  In this document we report the results.
-
+In April 2019, LSST DM began a proof of concept project with the AWS and HTCondor teams to explore whether a cloud deployment of the Data Release Production (DRP) is feasible.
+The execution plan of the project is described in DMTN-114.
+For this project AWS granted us credits to use their platform.
+The team met biweekly to discuss the progress and plans.
+In this document we report the results.
 
 
 \section{Approaches and Strategies}
 
 In executing this PoC we focused on the goal of being able to demonstrate the data processing on the AWS cloud and kept the following strategies in mind.
 
-
-
 \begin{enumerate}
 \item
 Progress in phases.
+Following the ideas in DMTN-114 we started with simply moving the execution to a cloud instance without modifying any backend, and gradually switching out each component to use AWS products.
+Amazon's Network File System, Amazon Elastic File System (Amazon EFS), was used in the first phase as the storage of a shared data repository, before the S3 datastore could be used directly via the Data Butler interface.
+A sqlite file on Amazon EFS was as the Data Butler Registry before we moved it to an Amazon RDS instance.
+A Personal Condor Pool on one instance was used before we tested the capability to launch new instances as the Condor workers.
+This approach allowed us to debug and adapt more smoothly and always had a fallback option in integrating and testing new features and components.
+\item
+Test with small tasks and dataset before scaling up.
+In particular, the ci\_hsc \href{https://github.com/lsst/ci\_hsc} dataset and the CI workflow provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
+The test workflow was always run as one of the first integration steps.
+\item
+Use Gen3 middleware.
+One of the mandates in the PoC was to use the Gen3 Middleware, which is designed to ease the DRP execution and automation compared to the previous Gen2 Middleware.
+However, as the Gen3 Middleware has been under active development during the course of the PoC, there were many backwards incompatible changes, the API and registry schema were unstable, no Gen3 continuous integration tests existed when we first started, and the test coverage was not good.
+We did not always follow the bleeding edge version and updated only when unnecessary, such as important bug fixes.
+Nonetheless the stack versions should not have strong impacts in the PoC conclusions.
+\item
+Focus on end-to-end execution and leave optimization behind.
+Some potential optimizations and further investigations were identified throughout the PoC project but were not carried out.
+Ideas are described in Sec \ref{future}.
 \end{enumerate}
 
 
 \section{Architecture Design}
 
 The system design in the end of the PoC is as in the diagram in Figure~\ref{fig:arch}.
+All components are hosted on the AWS platform.
 
 \begin{figure}
   \centering
@@ -27,7 +48,44 @@ The system design in the end of the PoC is as in the diagram in Figure~\ref{fig:
   \caption{architecture design}
 \end{figure}
 
+The user launches an on-demand instance as the master submit host and the central manager of the HTCondor.
+HTCondor manages an HTCondor pool which is a collection of resources.
+On the master, the command line interface of Pegasus is used to submit, control, and monitor the LSST workflow.
+Each LSST Pipeline Task quantum is mapped into a Pegasus job in the abstract workflow which is resource-independent.
+The job dependency is represented as a directed acyclic graph (DAG).
+Pegasus adds other necessary jobs, such as data transfer, to the executable workflow.
+HTCondor DAGMan is the workflow execution engine behind Pegasus and controls the processes.
+HTCondor match jobs with available resources.
+
+Using HTCondor Annex, AWS EC2 instances are launched as workers to join the HTCondor Pool.
+Either the on-demand or the Spot instances can be added.
+Fleets of multiple Spot instances can be requested using HTCondor Annex commands.
+HTCondor Annex manages the instance lifecycle.
+
+LSST Pipeline jobs are executed on the worker instances.
+Science files are stored in a S3 bucket which is a Data Butler Datastore, and pipelines jobs read and write directly to the S3 bucket.
+Pipeline jobs also connect directly to the RDS instance which is the Data Butler Registry that keeps track of the science files.
+These new Data Butler backends were implemented during the PoC, see Sect \ref{butler}.
+
+Files that are not managed by Data Butler are managed by the Condor File IO via Pegasus.
+These include the Data Butler configuration file, pipeline definition (Quantum Graph) files, and the log files.
+The master instance also serves as the staging site for these files.
+Condor File IO transfers input and output files between the master and the workers; instances do not share a filesystem.
+
+
 \subsection{Alternative architecture designs were also discussed in the PoC}
+
+We discussed different architecture designs but did not pursue all of them due to time constraints.
+One prominent idea is to use condor transfer to read and write files to S3, rather than relying on Data Butler to communicate directly with S3.
+A new plug-in to do so has been recently added in HTCondor.
+In this design HTCondor controls all file transfer.
+
+Similarly, database ingestion may be done only after the jobs fully finish, rather than one at a time while the jobs run.
+This also may reduce the number of database connections by bundling transactions from multiple jobs together.
+The idea here is to handle database transactions in a centralized manner, not on workers, so can have a limited number of database connections.
+This design may require a local sqlite registry to be used in each job.
+Job wrappers and new Data Butler features may be needed.
+
 
 \section{Building AWS support into the Data Butler and lessons learned}
 
@@ -50,3 +108,77 @@ Outstanding issues are presented in terms of security and authorization when dea
 Adding the support for AWS into the Butler exercised almost the entirety of the Gen. 3 Data Butler. During the process many faults and unpredictable behaviors were discovered and solved. Many problems touched, and continue to exercise, the general Gen. 3 Data Butler implementation, as well as assumptions made during their implementation. Recounting the wide list of major improvements to the codebase, hopefully, reveals how productive this exercise has been in helping generalizing and strengthening the whole Gen3. Data Butler codebase.
 
 \section{Results of the tract-sized runs}
+\input{taskBreakdown}
+\input{billBreakdown}
+
+\section{Potential Improvements and more lessons learned} \label{future}
+
+In this session we describe issues we have encountered during the execution and ideas to improve.
+We discuss both intermittent failures that we understand and expect to occasionally encounter even in production, as well as higher level design or tooling improvements.
+
+Failures can occur due to non-pipeline issues such as underlying infrastructure.
+The fault rate may be small but as we scale up we start to encounter some.
+Some examples are listed below; most seem transient.
+
+
+\begin{enumerate}
+\item Database connection timeout. Attempting to connect to the RDS instance failed.
+\begin{lstlisting}[breaklines=true]
+sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) could not connect to server: Connection timed out
+\end{lstlisting}
+\item
+After a file was added to a S3 bucket and during ingestion in the Butler registry, S3 reported a file does not exist.
+This will be fixed in \jira{DM-22201}.
+\begin{lstlisting}[breaklines=true]
+FileNotFoundError: File at 's3://hsc-rc2-test1-hfc/repo-w38/hfc30/srcMatchFull/1316/srcMatchFull_1316_24_HSC_17.fits' does not exist; note that paths to ingest are assumed to be relative to self.root unless they are absolute.
+\end{lstlisting}
+\item S3 read timeout before science processing started in a job.
+\begin{lstlisting}[breaklines=true]
+botocore.exceptions.ReadTimeoutError: Read timeout on endpoint URL: "None"
+\end{lstlisting}
+\item Out-of-memory while running jobs.
+For the same pipeline and input data, this is reproducible.
+But we may not always have accurate memory usage prediction for any input data before running the jobs.
+We can configure HTCondor to increase the memory requirement in the retry.
+However sometimes OOM crashed the instances and appeared as a network issue, an undesirable behaviour.
+\item Launching HTCondor Annex workers failed with connectivity check collector issues.
+\begin{lstlisting}[breaklines=true]
+Connectivity check found wrong collector (f5fc15573ffb9c93 vs a006066e73c412da).
+\end{lstlisting}
+\end{enumerate}
+
+
+More generally, improvements in system design and tooling rise to prominence.
+We discuss some ideas below.
+
+\begin{enumerate}
+\item Better job failure recovery strategies.
+Our jobs write directly to the S3 bucket and the RDS instance via the Data Butler.
+If a job fails in a state that partial outputs are written but the job does not fully finish, recovery is not trivial.
+We may want a wrapper around the Pipeline Task that commits a transaction only if the job succeeds, have a reliable way to overwrite files from a failed job, or other ways to handle such scenarios.
+\item Container based software stack.
+We have found it tricky to handle the LSST stack installation, dependencies, and environments to be used together with other software.
+One possible way to avoid the headaches is to use docker based stack releases.
+This may also ensure consistency of software on the master and the workers more easily.
+\item Better cluster management tooling.
+Our current operational approach requires manually deploy suitable types and sizes of fleets based on our understanding of the overall workload.
+Strategies on the instance choices and timing of requests therefore affect the cost, and manual adjustments are usually needed to reduce cost.
+Annex can remove idle instances out of the condor pool but may not terminate the instances until the lease expires.
+Also once instances drop out of the pool they can't be added back easily.
+Tooling become essential for the operations.
+For example we may use scripts to auto-scale the Annex condor pool.
+An alternative approach is to use AWS Batch which automatically provisions the compute resources based on the workload and only charges for the actual resources used.
+\item End-to-end CI.
+This should include all operational components to do an end-to-end run.
+This includes Butler repo generation, registry generation, Quantum Graph generation, job composition, workflow translation, job execution, and so on.
+Many of the components were in the development phase and workarounds were used during the PoC.
+For example a native Gen3 ingestion was not available so a Gen2-to-Gen3 conversion was needed.
+As we put together the pieces, the absence of to do so in an automatic fashion became a key burden.
+In retrospect we probably should have invested more time to automate the end-to-end workflow, even with workarounds.
+Looking ahead a first step could be a \texttt{ci\_hsc} like package with the S3 backend.
+\item Credential handling.
+In this PoC the worker image carry credentials in files \texttt{~/.lsst/db-auth.yaml} and \texttt{~/.aws/credentials} which is not the best practice of handling the access.
+\item Robustify and give better error messages.
+It has been observed that sometimes the error messages could be misleading.
+
+\end{enumerate}
