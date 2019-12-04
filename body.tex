@@ -21,7 +21,7 @@ A Personal Condor Pool on one instance was used before we tested the capability 
 This approach allowed us to debug and adapt more smoothly and always had a fallback option in integrating and testing new features and components.
 \item
 Test with small tasks and dataset before scaling up.
-In particular, the ci\_hsc \href{https://github.com/lsst/ci\_hsc} dataset and the CI workflow provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
+In particular, the \texttt{ci\_hsc} \href{https://github.com/lsst/ci\_hsc} dataset and the CI workflow provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
 The test workflow was always run as one of the first integration steps.
 \item
 Use Gen3 middleware.
@@ -108,8 +108,108 @@ Outstanding issues are presented in terms of security and authorization when dea
 Adding the support for AWS into the Butler exercised almost the entirety of the Gen. 3 Data Butler. During the process many faults and unpredictable behaviors were discovered and solved. Many problems touched, and continue to exercise, the general Gen. 3 Data Butler implementation, as well as assumptions made during their implementation. Recounting the wide list of major improvements to the codebase, hopefully, reveals how productive this exercise has been in helping generalizing and strengthening the whole Gen3. Data Butler codebase.
 
 \section{Results of the tract-sized runs}
+
+After successful execution with the \texttt{ci\_hsc} dataset, we scaled up the run to one full tract of the HSC-RC2 dataset (\jira{DM-11345}).
+The full HSC-RC2 input repo contains 108108 objects and totals $\sim$1.5TB, including 432 raw visits in 3 tracts and $\sim$0.7TB of calibration data.
+In this project, we targeted tract=9615 which was executed with the Oracle backend in the S2019 milestone of the Gen3 team; for runs previously executed on NCSA cluster see \jira{DM-19915}.
+In terms of raw inputs, tract=9615 contribute around 26$\%$, or $\sim$0.2 TB, of the raw data in the HSC-RC2 dataset.
+We ignored patch 28 and 72 due to a coaddition pipeline issue as reported in \jira{DM-20695}.
+A Butler repo was first made on NCSA's GPFS with a sqlite registry, and then transferred to the S3 bucket and the RDS instance.
+All tract-sized runs reported in this DMTN used LSST Software Stack release \texttt{w\_2019\_38}.
+The version of HTCondor was 8.9.3.
+
+The workflow contains 1 initialization job and 27074 regular PipelineTask jobs.
+Science configurations from \url{https://github.com/lsst-dm/gen3-hsc-rc2} were used to generate a Quantum Graph.
+We transformed the quanta into jobs in the Pegasus format with one-to-one mapping.
+The breakdown of the tasks in the workflow is in Table \ref{tab:taskBreakdown}.
+
 \input{taskBreakdown}
+
+Generally speaking, there are two types of jobs: small-memory and large-memory jobs.
+Small memory jobs take less than 4GB per jobs, and large memory jobs can take up to $\sim$30GB per jobs.
+For simplicity, we consider all MakeWarpTask, CompareWarpAssembleCoaddTask, DeblendCoaddSourcesSingleTask, and MeasureMergedCoaddSourcesTask as large-memory jobs and for all of them set the required amount of memory to be $\sim$30GB as their job requirements, hence HTCondor only match them to machines with sufficient memory.
+AWS instances come with different flavors and the \texttt{r} family provides memory optimized instances with $\sim$8GB per core.
+The worker instances are configured to be HTCondor partitionable slots which dynamically splits resources and creates new slots to suit the jobs.
+
+The submit host is an AWS on-demand instance, typically m5.large or larger.
+Spot fleets are requested after the Pegasus workflow start.
+Typically \texttt{m4} or \texttt{m5} instances are used for the single frame processing or other small-memory jobs, and \texttt{r4} instances are used for large-memory jobs.
+After the workflow finishes, remaining running Spot instances may be terminated on the AWS console.
+Besides the 27075 pipetask invocations, Pegasus added 2712 data transfer jobs and one directory creation job.
+The total output size from the tract=9615 workflow is $\sim$4.1 TB with 74360 objects.
+
+\subsection{Notes from the successful runs}
+
+Details of all runs are summarized in \jira{DM-21817}, and in the following we summarize the successful runs only.
+Table \ref{tab:runSummary} lists the runtime as reported by Pegasus tools.
+
+\input{runSummary}
+
+In the first successful run \texttt{20191026T041828+0000}, a fleet of 40 \texttt{m5.xlarge} instances were used for single frame processing and then a fleet 50 \texttt{r4.2xlarge} memory optimized instances for the rest.
+A \texttt{m5.large} on-demand instance served as the master.
+The single frame processing part finished in ~4 hours; coadd and beyond took ~16 hours.
+In this run, the memory requirement of the large-memory jobs was slightly higher than half of a \texttt{r4.2xlarge}, resulting in instance resources not fully used.
+The run spanned two billing days.
+
+In the repeated run \texttt{20191121T015100+0000}, the master was also a \texttt{m5.large} on-demand Instance.
+Fleets containing 75 \texttt{m4.xlarge} instances and 50 \texttt{r4.2xlarge} were launched.
+The memory requirement of the large-memory jobs was adjusted so that two such jobs can run on a \texttt{r4.2xlarge} simultaneously.
+Due to the larger fleet, the whole workflow finished within 12 hours in one bill day.
+
+We then ran two of the same workflow graphs \texttt{20191127T192022+0000} and \texttt{20191127T192345+0000} simultaneously, simulating a larger input size.
+The master was a \texttt{m5.2xlarge} on-demand instance.
+A Spot fleet containing 150 \texttt{m5.xlarge} instances ran the single frame processing for the first three hours, and a fleet of 150 \texttt{r4.2xlarge} instances ran the rest of the workflow.
+600 jobs ran simultaneously during single frame processing.
+Larger fleets were used to help finishing the workflows in a shorter wallclock time.
+The run spanned two billing days.
+
+
+\subsection{Cost Analysis}
+
+The main components of the charges come from (a) EC2 Spot instances, (b) EC2 on-demand instances, (c) S3 storage, (d) RDS, and (e) others.
+The numbers reported here are from the AWS Cost Explorer tools.
+
+\begin{enumerate}
+\item EC2 Spot instances.
+EC2 Spot instances are the workers that execute the processing jobs, so this essentially is the cost of the compute power and scales with the compute resources needed to accomplish the processing campaign.
+The exact pricing for Spot instances varies based on supply and demand of the overall EC2 capacity.
+For instances used in our test runs, Spot instances cost around 20-25\% of the on-demand instance price.
+Charges continue as long as the instances are up and running, even if no jobs are assigned to the instances.
+One hour of Spot instance typically costs \$0.045 for \texttt{m5.xlarge} and \$0.08 for \texttt{r4.2xlarge}.
+Different mix of instance types could affect the performance as well as the total cost.
+Including the instance idle time, we paid $\sim\$$0.035 per computing hour in average.
+We should pay less with better workload control and instance lifecycle control.
+
+\item On-demand EC2 instance.
+We use an on-demand EC2 instance to serve as the submit host and the central workflow manager because we do not want it terminated by AWS.
+The current price of m5.xlarge on-demand instances is \$0.192 per hour.
+
+\item RDS.
+Throughout our test runs we used a \texttt{db.m5.xlarge} instance, which has 4 vCPU and 16 GB of memory, to host the Butler Registry.
+We are aware this DB instance is more powerful than we usually need but we keep it running.
+The charge is therefore proportional to the span of time.
+For simplicity we count all RDS charge during the runs towards the cost of the runs, which is an overestimate because we also host other small instances for testing purposes.
+For example, a \texttt{db.t2.micro} has been running alongside to host a Butler Registry for the \texttt{ci\_hsc} repo which costs \$1.3 per day.
+
+\item S3.
+The charge of S3 is dominated by the data storage cost, which is \$0.023 per GB per month for the first 50TB.
+This means it costs $\sim$\$1.2 per day storing the input repo ($\sim$1.5TB) alone, and $\sim$\$3.1 per day storing one set of the tract=9615 workflow outputs ($\sim$4.1TB).
+At the rate of \$0.09 per GB, transferring one output dataset out of AWS would cost $\sim$\$370.
+We also incur charges per quantity of requests, which cost$\sim$\$4.3 for each run of the tract=9615 workflow.
+
+\item Other charges.
+The majority of other charges come from the Elastic Block Store (EBS) that provides storage for use with EC2.
+This includes SSD-backed volumes and snapshots, both of which are priced per size and time.
+Other charges are relatively small, such as a Business Support plan to get help from AWS engineers, and CloudWatch for additional monitoring information.
+
+\end{enumerate}
+
+Table \ref{tab:billBreakdown} provides an overview for each run.
+This includes all charges incurred on the billing days during which the runs were done, so this can be seen as an upper bound.
+We also have not optimized the usage; more discussions are in the next session.
+
 \input{billBreakdown}
+
 
 \section{Potential Improvements and more lessons learned} \label{future}
 
@@ -145,6 +245,11 @@ However sometimes OOM crashed the instances and appeared as a network issue, an 
 \begin{lstlisting}[breaklines=true]
 Connectivity check found wrong collector (f5fc15573ffb9c93 vs a006066e73c412da).
 \end{lstlisting}
+\item Dataset ConflictingDefinitionError.
+In rare occassions we observed dataset conflict errors from the registry without obvious reasons such as duplicate collection names or retries.
+\jira{DM-21201} has refactored the code to robustify such transactions.
+It could also be related to Spot instances getting terminated;
+see next section on failure recovery.
 \end{enumerate}
 
 

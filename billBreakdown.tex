@@ -1,12 +1,13 @@
-\begin{longtable} {|r|r|r|} 
-\caption{Cost breakdown of the runs \label{tab:billBreakdown}}\\ 
-\hline 
-{Category}&\multicolumn{2}{c|}{Cost} \\ \hline 
-{Category}&{20191026T041828+0000}&{20191121T015100+0000}\\ \hline 
-{S3 (including other storage cost)}&17.29&13.48 \\
-{RDS}&26.38&13.82\\
-{EC2 on-demand instances for master}&8.69 (overest) &1.54\\
-{EC2 Spot instances}&94.69&58.55\\
-{Others/mostly EC2}&12.57 &7.12 \\ \hline
-{Total}&159.62&94.51\\ \hline
+\begin{longtable} {|r|r|r|r|}
+\caption{Cost breakdown for each run \label{tab:billBreakdown}}\\
+\hline
+{}&\multicolumn{3}{c|}{Runs} \\ \hline
+\multirow{2}{*}{Category}&\multirow{2}{*}{20191026T041828}&\multirow{2}{*}{20191121T015100}&{20191127T192022}\\
+&&&{20191127T192345}\\ \hline
+{EC2 on-demand instances for master}& 2.88 &1.54 &2.05\\
+{EC2 Spot instances}&94.69&58.55 &52.94\\
+{RDS}&26.38&13.82 & 13.82\\
+{S3 (including other storage cost)}&17.29&13.48& 21.48\\
+{Others/mostly EC2}&18.38 &7.12 &6.37\\ \hline
+{Total}&159.62&94.51&96.66\\ \hline
 \end{longtable} \normalsize
