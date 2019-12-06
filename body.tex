@@ -1,51 +1,64 @@
+\newcommand{\poc}{AWS PoC}
+\newcommand{\dmtn}[1]{\href{https://dmtn-#1.lsst.io}{DMTN-#1}}
+
+
 \section{Background}
 
 In April 2019, LSST DM began a proof of concept project with the AWS and HTCondor teams to explore whether a cloud deployment of the Data Release Production (DRP) is feasible.
-The execution plan of the project is described in DMTN-114.
+The execution plan of the project is described in \dmtn{114}.
 For this project AWS granted us credits to use their platform.
 The team met biweekly to discuss the progress and plans.
-In this document we report the results.
+In this document we report on the work carried out, lessons learned as well as the results of scaling and pricing tests carried out by the \poc.
 
 
 \section{Approaches and Strategies}
 
-In executing this PoC we focused on the goal of being able to demonstrate the data processing on the AWS cloud and kept the following strategies in mind.
+\poc's goal is to demonstrate that running Data Release Production (DRP) on AWS is possible. To be considered successfull the following constraints needed to be met:
 
-\begin{enumerate}
-\item
-Progress in phases.
-Following the ideas in DMTN-114 we started with simply moving the execution to a cloud instance without modifying any backend, and gradually switching out each component to use AWS products.
-Amazon's Network File System, Amazon Elastic File System (Amazon EFS), was used in the first phase as the storage of a shared data repository, before the S3 datastore could be used directly via the Data Butler interface.
-A sqlite file on Amazon EFS was as the Data Butler Registry before we moved it to an Amazon RDS instance.
-A Personal Condor Pool on one instance was used before we tested the capability to launch new instances as the Condor workers.
+\subsection{Progress in phases.}
+
+\dmtn{114} proposed development phases that broadly outlined how progress should be made and when performance would be monitored. The outlined plan was to move the execution to AWS without any backend modifications and then gradually switch out each component to AWS.
+
+DRP is planned to executed on a shared POSIX-compliant filesystem. In the first phase such filesystem was replaced by \href{https://aws.amazon.com/efs/}{Amazon Elastic File System (Amazon EFS)}. EFS provides a POSIX-compliant, scalable, elastic NFS file system designed to provide parallel shared access to thousands of AWS compute instances. The computational resource was provided by the \href{https://aws.amazon.com/ec2/}{Amazon Elastic Compute 2 (EC22)} service. EC2 service provides secure, resizable compute capacity based on virtualization technologies. The data repository, including the datastore and the SQLite registry, was located on EFS that was mouted to each of the EC2 compute instances.
+
+\href{https://aws.amazon.com/s3/}{Simple Storage Service (S3)} was set to replace EFS. S3 is an object storage that allows massive amounts of unstructured data where each object typically includes the data, related metadata and is identified by a globally unique identifier, to be stored and accessed from EC2 instances in a durable and highly scalable way.\newline
+Buckets, organizational units in which related objects are generally stored, enable easier access and priviledges administration. Access, read, write, delete and other atomical units of action on the objects themselves can be allowed or forbidden at the account, bucket or individual object level. Logging is available for all actions on the Bucket level and/or at the individual object granularity. It is also possible to define and issue complex alert conditions on Bucket or object actions which can execute arbitrary actions or workflows, but S3 itself not POSIX compliant. 
+
+The SQLite registry was to be replaced by PostgreSQL, one of the most popular open source relational database systems available. The choice to go with PostgreSQL was based on the fact that it's a very popular and well supported open source software that suffers from no additional licensing fees usually associated with proprietary software. \href{https://aws.amazon.com/rds/}{Relational Database Service (RDS)} is the AWS cloud service that launches and configures databases with ease. 
+
+\href{https://research.cs.wisc.edu/htcondor}{HTCondor} is a well used, popular scheduler typically used in shared filesystem HPC type clusters. A condor\_annex module allows HTCondor deployment on cloud resources. Instances allocated by condor\_annex are added to a shared resource pool on which then jobs added in the job queue are scheduled on. Unused compute resources are automatically deallocated after some set time spent idling. Personal Condor Pool on an single EC2 instance was used before we tested the capability to launch new EC22 instances as the Condor workers and execute jobs. HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/experiment-that-discovered-the-higgs-boson-uses-aws-to-probe-nature}{HEP Cloud project}, scaling up to 60,000 cores in multi-region deployement on AWS, and by \href{https://www.linkedin.com/pulse/using-50k-gpus-across-multiple-clouds-icecube-science-igor-sfiligoi}{IceCube experiment}, where they scaled up to 51,000 GPUs across multiple regions and multiple cloud providers (AWS, Azure, and Google Cloud). 
+
 This approach allowed us to debug and adapt more smoothly and always had a fallback option in integrating and testing new features and components.
-\item
-Test with small tasks and dataset before scaling up.
-In particular, the \texttt{ci\_hsc} \href{https://github.com/lsst/ci\_hsc} dataset and the CI workflow provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
-The test workflow was always run as one of the first integration steps.
-\item
-Use Gen3 middleware.
+
+\subsection{Test with small tasks and dataset before scaling up.}
+
+Test with small tasks and dataset before scaling up. The cannonical \href{https://github.com/lsst/ci\_hsc}{ci\_hsc} dataset and the CI workflow provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
+The test workflow was always run as one of the first integration steps. Dor larger scale tests we used the \href{https://jira.lsstcorp.org/browse/DM-11345}{RC2 dataset}. 
+
+\subsection{Use Gen. 3 Middleware.}
+
 One of the mandates in the PoC was to use the Gen3 Middleware, which is designed to ease the DRP execution and automation compared to the previous Gen2 Middleware.
 However, as the Gen3 Middleware has been under active development during the course of the PoC, there were many backwards incompatible changes, the API and registry schema were unstable, no Gen3 continuous integration tests existed when we first started, and the test coverage was not good.
 We did not always follow the bleeding edge version and updated only when unnecessary, such as important bug fixes.
 Nonetheless the stack versions should not have strong impacts in the PoC conclusions.
-\item
+
+\subsection{Focus on end-to-end execution.}
+
 Focus on end-to-end execution and leave optimization behind.
 Some potential optimizations and further investigations were identified throughout the PoC project but were not carried out.
 Ideas are described in Sec \ref{future}.
-\end{enumerate}
 
 
 \section{Architecture Design}
 
-The system design in the end of the PoC is as in the diagram in Figure~\ref{fig:arch}.
+The system design at the end of the PoC is shown in Figure~\ref{fig:arch}.
 All components are hosted on the AWS platform.
 
 \begin{figure}
   \centering
   \includegraphics[width=\textwidth]{figures/arch}
   \label{fig:arch}
-  \caption{architecture design}
+  \caption{Diagram of DRP on AWS architecture.}
 \end{figure}
 
 The user launches an on-demand instance as the master submit host and the central manager of the HTCondor.
@@ -90,10 +103,6 @@ Job wrappers and new Data Butler features may be needed.
 \section{Building AWS support into the Data Butler and lessons learned}
 
 The Data Butler is the overarching data IO abstraction through which all LSST data access is mediated. Datasets are referred to by their unique IDs, or a set of identifying references, which are then resolved through an registry that matches the dataset IDs, or references, to the location, file format and the Python object type of the dataset. The system that persists, reads and potentially modifies the datasets is called the datastore. The Registry almost always backed by an SQL database and the Datastore is usually backed by a shared filesystem. A major focus of AWS POC was to implement, and investigate issues related to, an S3 backed Datastore and a PostgreSQL backed Registry.
-
-Simple Storage Service (S3) is object storage provided by AWS. Unlike the more traditional file systems that manage data as a file hierarchy, or data blocks within sectors and tracts, objet storage manages data as objects. This allows the storage of massive amounts of unstructured data where each object typically includes the data, related metadata and is identified by a globally unique identifier. S3, specifically, promises 99.999999999\% durability as uploading an object to it automatically stores it across multiple systems, thus also ensuring scalability and performance. Related objects are generally stored in the same Buckets for easier administrative purposes. Access, read, write, delete and other atomical units of action on the objects themselves can be allowed or forbidden at the account, bucket or individual object level. Logging is available for all actions on the Bucket level and/or at the individual object granularity. It is also possible to define and issue complex alert conditions on Bucket or object actions which can execute arbitrary actions or workflows.
-
-PostgreSQL is one of the most popular open source relational database systems available. The choice to go with PostgreSQL was based on the fact that it's a very popular and well supported open source software that suffers from no additional licensing fees usually associated with proprietary software. Relational Database Service (RDS) is the AWS cloud service that launches and configures databases with ease. 
 
 At the time the AWS POC Group began generation 3 Butler, the latest implementation of the Data Butler, implemented PosixDatastore, a local or shared filesystem datastore, and a SqliteRegistry. OracleRegistry followed soon after LSST AWS POC group began work. Initialy the focus was on implementing an S3 backed datastore called S3Datastore. The interface between AWS services and LSST Stack would be based on the official AWS SDK called boto3. In March 2019, Dino Bektesevic visited NOAO to work more closely with Tim Jenness, which prooved to be instrumental in implementing the early versions of a new module in the `daf\_butler` called `s3utils`, an `S3Datastore` class, the PosixDatastore equivalent, and a set of appropriate unit tests that demonstrated its functionality and correctness. The unit tests for the datastore utilize the `moto` library which mocks requests and responses sent to AWS services, so that no additional external infrastructure is required to use it. PostgreSqlRegistry class was implemented partially during the visit and completed shortly after the visit. The initial implementation showcasing the required changes to the code was submitted as a Draft Pull Request \href{https://github.com/lsst/daf_butler/pull/147}{PR-147}. 
 
