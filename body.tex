@@ -26,7 +26,9 @@ Buckets, organizational units in which related objects are generally stored, ena
 
 The SQLite registry was to be replaced by PostgreSQL, one of the most popular open source relational database systems available. The choice to go with PostgreSQL was based on the fact that it's a very popular and well supported open source software that suffers from no additional licensing fees usually associated with proprietary software. \href{https://aws.amazon.com/rds/}{Relational Database Service (RDS)} is the AWS cloud service that launches and configures databases with ease. 
 
-\href{https://research.cs.wisc.edu/htcondor}{HTCondor} is a well used, popular scheduler typically used in shared filesystem HPC type clusters. A condor\_annex module allows HTCondor deployment on cloud resources. Instances allocated by condor\_annex are added to a shared resource pool on which then jobs added in the job queue are scheduled on. Unused compute resources are automatically deallocated after some set time spent idling. Personal Condor Pool on an single EC2 instance was used before we tested the capability to launch new EC22 instances as the Condor workers and execute jobs. HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/experiment-that-discovered-the-higgs-boson-uses-aws-to-probe-nature}{HEP Cloud project}, scaling up to 60,000 cores in multi-region deployement on AWS, and by \href{https://www.linkedin.com/pulse/using-50k-gpus-across-multiple-clouds-icecube-science-igor-sfiligoi}{IceCube experiment}, where they scaled up to 51,000 GPUs across multiple regions and multiple cloud providers (AWS, Azure, and Google Cloud). 
+\href{https://research.cs.wisc.edu/htcondor}{HTCondor} is a well used, popular scheduler typically used in shared filesystem HPC type clusters. A condor\_annex module allows HTCondor deployment on cloud resources. Instances allocated by condor\_annex are added to a shared resource pool on which then jobs added in the job queue are scheduled on. Unused compute resources are automatically deallocated after some set time spent idling. Personal Condor Pool on an single EC2 instance was used before we tested the capability to launch new EC22 instances as the Condor workers and execute jobs. HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/experiment-that-discovered-the-higgs-boson-uses-aws-to-probe-nature}{HEP Cloud project}, scaling up to 60,000 cores in multi-region deployement on AWS, and by \href{https://www.linkedin.com/pulse/using-50k-gpus-across-multiple-clouds-icecube-science-igor-sfiligoi}{IceCube experiment}, where they scaled up to 51,000 GPUs across multiple regions and multiple cloud providers (AWS, Azure, and Google Cloud).
+
+{\color{red} Maybe add pegasus here, or move lods of this text out into a special section for AWS services under intro, or just punt all of this to glossary (but then not easy to read fluently}
 
 This approach allowed us to debug and adapt more smoothly and always had a fallback option in integrating and testing new features and components.
 
@@ -37,10 +39,11 @@ The test workflow was always run as one of the first integration steps. Dor larg
 
 \subsection{Use Gen. 3 Middleware.}
 
-One of the mandates in the PoC was to use the Gen3 Middleware, which is designed to ease the DRP execution and automation compared to the previous Gen2 Middleware.
-However, as the Gen3 Middleware has been under active development during the course of the PoC, there were many backwards incompatible changes, the API and registry schema were unstable, no Gen3 continuous integration tests existed when we first started, and the test coverage was not good.
-We did not always follow the bleeding edge version and updated only when unnecessary, such as important bug fixes.
-Nonetheless the stack versions should not have strong impacts in the PoC conclusions.
+One of the mandates in the \poc was to use the Gen. 3 Middleware, which is designed to ease the DRP execution and automation compared to the previous Gen2 Middleware. Gen. 3 Middleware design made it more pliable to required changes to the codebase, compared to Gen. 2 Middleware, and, as it was still relatively early in its implementation, its simplicity helped move progress forward quicker than if Gen. 2 Middleware was adopted.
+
+However, during the \poc the Gen. 3 Middleware has been under active development. Backwards incompatible changes ooccur often and often interfere with additions to the code. Even after the code was accepted because there are no integration tests being run for the added code, changes often break functionality. Even if potentially possible additional integration tests would not be accepted contribution as they would double, or worse, the total time required to run the test suite. 
+
+Keeping this in mind, We decided not to always follow the bleeding edge version and updated only when unnecessary, such as important bug fixes. The stack versions should not have strong impacts in the \poc conclusions. {\color{red} This is too strong, the stack version can have a big effect on the performance, ergo on our conclusions. I would like to rephrase this.} 
 
 \subsection{Focus on end-to-end execution.}
 
@@ -61,39 +64,25 @@ All components are hosted on the AWS platform.
   \caption{Diagram of DRP on AWS architecture.}
 \end{figure}
 
-The user launches an on-demand instance as the master submit host and the central manager of the HTCondor.
-HTCondor manages an HTCondor pool which is a collection of resources.
-On the master, the command line interface of Pegasus is used to submit, control, and monitor the LSST workflow.
-Each LSST Pipeline Task quantum is mapped into a Pegasus job in the abstract workflow which is resource-independent.
-The job dependency is represented as a directed acyclic graph (DAG).
-Pegasus adds other necessary jobs, such as data transfer, to the executable workflow.
-HTCondor DAGMan is the workflow execution engine behind Pegasus and controls the processes.
-HTCondor match jobs with available resources.
+Amazon Machine Image (AMI) bundle the Operating System (OS) with required data and configurations into a convenient image that can be launched on any EC2 instance type. We provide prebuilt AMIs containing LSST Stack, Pegasus, configured and running HTCondor in two flavors: master and the worker. These contain the complete environment required to run DRP workflows and scale them out with HTCondor. The user launches an on-demand instance using the master AMI, to which they log in and submit, scale out/down and run their workflows. 
 
-Using HTCondor Annex, AWS EC2 instances are launched as workers to join the HTCondor Pool.
-Either the on-demand or the Spot instances can be added.
-Fleets of multiple Spot instances can be requested using HTCondor Annex commands.
-HTCondor Annex manages the instance lifecycle.
+Compute resources are procured from the master node via condor\_annex by targeting the worker AMI. Annex is a resource acquisition and external compute resource separation management unit. Each resource pool can have multiple annexes. Each annex manages its own lifecicle and generally speaking jobs will be submitted only to the annex they started and/or own. It is possible to request on-demand or spot instance fleets. On demand instances cost more but they can not be deallocated by AWS. Spot fleet instances tend to be significantly cheaper, but at any time AWS, given a 2 mintue warning, can request the compute resources back and deallocate them. 
 
-LSST Pipeline jobs are executed on the worker instances.
-Science files are stored in a S3 bucket which is a Data Butler Datastore, and pipelines jobs read and write directly to the S3 bucket.
-Pipeline jobs also connect directly to the RDS instance which is the Data Butler Registry that keeps track of the science files.
-These new Data Butler backends were implemented during the PoC, see Sect \ref{butler}.
+The DRP, in Gen. 3 Middleware, is imagined as an execution of a Directed Acyclic Graph (DAG) known as Quantum Graph. A Quantum Graph link Tasks to datasets they consume and produce. Pegasus is used to submit the Quantum Graph to HTCondor as well as control, and monitor the workflow execution. Each LSST Pipeline Task quantum is resource-independent. Pegasus adds other necessary jobs, such as data transfer, to the executable workflow. HTCondor DAGMan is the workflow execution engine behind Pegasus and controls the processes.
 
-Files that are not managed by Data Butler are managed by the Condor File IO via Pegasus.
-These include the Data Butler configuration file, pipeline definition (Quantum Graph) files, and the log files.
-The master instance also serves as the staging site for these files.
-Condor File IO transfers input and output files between the master and the workers; instances do not share a filesystem.
+The datastore is located in an S3 Bucket and follows the same hierarchical structure that POSIX datastore does. Consumed and produced datasets are read and written directly from S3 as bytes, whenever possible, and only downloaded to temporary files for objects that are not serializable.
 
+The registry is a RDS PostgreSQL database. The RDS databases can be backed up into snapshots as well as exported to downloadable files on S3. Since the directory structure is preserved by the S3 datastore the entire data repository is trivially transferable between the cloud and a local filesystem.
+
+These new Data Butler backends were implemented during the PoC, see Sect \ref{sec:butler}. Files that are not managed by Data Butler are managed by the Condor File IO via Pegasus. These include the Data Butler configuration file, pipeline definition (Quantum Graph) files, and the log files. The master instance serves as the staging site for these files. Various network protocols transfer the files between the master and the workers; instances do not share a filesystem.
 
 \subsection{Alternative architecture designs were also discussed in the PoC}
 
 We discussed different architecture designs but did not pursue all of them due to time constraints.
-One prominent idea is to use condor transfer to read and write files to S3, rather than relying on Data Butler to communicate directly with S3.
-A new plug-in to do so has been recently added in HTCondor.
-In this design HTCondor controls all file transfer.
 
-Similarly, database ingestion may be done only after the jobs fully finish, rather than one at a time while the jobs run.
+One prominent idea was to use condor transfer to read and write files to S3, rather than relying on Data Butler to communicate directly with S3. In this design HTCondor controls all file transfers. The proposed implementation was external to the LSST code base. The discussed architecture implied that there is a local data repository from which data is read and processed into and data ingestion and data transfer was triggered from. This requires the development of many additional utilities (posix to S3 and vice-versa datastore copying, URL prediction and generation tools) which often mimic or outright duplicate the mechanisms already present in Gen. 3 Middleware, as well as describing all required and produced datasets to HTCondor as well. These issues disfavored this architecture. The favorable potential benefits of this approach are potentials of bulk data transfer management optimizations.
+
+Other discussed architecture proposed a decentralized ouput registry behaviour. Each of the worker nodes wuld wite to their own local registry. The final registry would be created at the end of processing by collating of all of individual registries. The motivation is to avoid potential bottlecks related to large scale parallel SQL transactions by bundling transactions of multiple jobs together. The registry schema, however, does not permit an easy conflict resolution as h smle cfic resolution,nor can the data provenace etracks
 This also may reduce the number of database connections by bundling transactions from multiple jobs together.
 The idea here is to handle database transactions in a centralized manner, not on workers, so can have a limited number of database connections.
 This design may require a local sqlite registry to be used in each job.
@@ -101,6 +90,7 @@ Job wrappers and new Data Butler features may be needed.
 
 
 \section{Building AWS support into the Data Butler and lessons learned}
+\ref{sec:butler}
 
 The Data Butler is the overarching data IO abstraction through which all LSST data access is mediated. Datasets are referred to by their unique IDs, or a set of identifying references, which are then resolved through an registry that matches the dataset IDs, or references, to the location, file format and the Python object type of the dataset. The system that persists, reads and potentially modifies the datasets is called the datastore. The Registry almost always backed by an SQL database and the Datastore is usually backed by a shared filesystem. A major focus of AWS POC was to implement, and investigate issues related to, an S3 backed Datastore and a PostgreSQL backed Registry.
 
