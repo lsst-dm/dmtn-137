@@ -1,6 +1,28 @@
 \newcommand{\poc}{AWS PoC}
 \newcommand{\dmtn}[1]{\href{https://dmtn-#1.lsst.io}{DMTN-#1}}
 
+\lstdefinestyle{basherror}{
+  language=bash,
+  showspaces=false,
+  showstringspaces=false,
+  breaklines=true,
+  postbreak=\mbox{\textcolor{red}{$\hookrightarrow$}\space},
+  basicstyle= \tiny \ttfamily
+}
+
+
+\lstdefinestyle{sqlprompt}{
+  language=SQL,
+  showspaces=false,
+  showstringspaces=false,
+  breaklines=true,
+  postbreak=\mbox{\textcolor{red}{$\hookrightarrow$}\space},
+  numbers=left,
+  numberstyle=\tiny,
+  commentstyle=\color{gray},
+  basicstyle=\tiny \ttfamily,
+}
+
 
 \section{Background}
 
@@ -82,15 +104,11 @@ We discussed different architecture designs but did not pursue all of them due t
 
 One prominent idea was to use condor transfer to read and write files to S3, rather than relying on Data Butler to communicate directly with S3. In this design HTCondor controls all file transfers. The proposed implementation was external to the LSST code base. The discussed architecture implied that there is a local data repository from which data is read and processed into and data ingestion and data transfer was triggered from. This requires the development of many additional utilities (posix to S3 and vice-versa datastore copying, URL prediction and generation tools) which often mimic or outright duplicate the mechanisms already present in Gen. 3 Middleware, as well as describing all required and produced datasets to HTCondor as well. These issues disfavored this architecture. The favorable potential benefits of this approach are potentials of bulk data transfer management optimizations.
 
-Other discussed architecture proposed a decentralized ouput registry behaviour. Each of the worker nodes wuld wite to their own local registry. The final registry would be created at the end of processing by collating of all of individual registries. The motivation is to avoid potential bottlecks related to large scale parallel SQL transactions by bundling transactions of multiple jobs together. The registry schema, however, does not permit an easy conflict resolution as h smle cfic resolution,nor can the data provenace etracks
-This also may reduce the number of database connections by bundling transactions from multiple jobs together.
-The idea here is to handle database transactions in a centralized manner, not on workers, so can have a limited number of database connections.
-This design may require a local sqlite registry to be used in each job.
-Job wrappers and new Data Butler features may be needed.
+Other discussed architecture proposed many individual output registries that would be collated into a single output registry at the end of processing. The motivation was to avoid potential bottlecks related to large scale parallel SQL transactions by bundling transactions of multiple jobs together whie leaving individual jobs access to a fast local SQLite database. However, the registry depends on conflict resolution syntax to resolve insertions of complexs datasets, not to mention the synchronization issues or the issues of dataset entires of chained Tasks would require a global registry synchronization lock in the middle of processing. While the local datastore sollutions might be possible it's hard to imagine a decentralized, or local cache-like, registry solutions. 
 
 
 \section{Building AWS support into the Data Butler and lessons learned}
-\ref{sec:butler}
+\label{sec:butler}
 
 The Data Butler is the overarching data IO abstraction through which all LSST data access is mediated. Datasets are referred to by their unique IDs, or a set of identifying references, which are then resolved through an registry that matches the dataset IDs, or references, to the location, file format and the Python object type of the dataset. The system that persists, reads and potentially modifies the datasets is called the datastore. The Registry almost always backed by an SQL database and the Datastore is usually backed by a shared filesystem. A major focus of AWS POC was to implement, and investigate issues related to, an S3 backed Datastore and a PostgreSQL backed Registry.
 
@@ -102,9 +120,49 @@ Further integration of the S3 backend required a change to Formatter classes to 
 
 PostgreSqlRegistry was not part of this PR. The initial implementation was based on OracleRegistry, due to the similarities between the two, but was re-implemented in terms of the generic SqlRegistry class in July. Problems were caused, for both Oracle and PostgreSQL, by the table naming conventions and additionally, for PostgreSQL, the table views did not conform to the assumptions made. In July the PostgreSqlRegistry was re-implemented in terms of the more general SqlRegistry and a new SQLAlchemy expressions compiler was written, so that table views could be generated correctly. The policy for additional registry implementations was not to accept associated unit tests, as they are dependent on existing outside architecture, meant that checking wheter it worked or not had to be based on manually executing one of the continuous integration tests such as ci\_hsc. I migrated existing SQLite registries to PostgreSQL in July and August and made them available to the LSST AWS PoC group for testing. The code was merged into the master branch of Gen. 3 Butler in August with \href{https://github.com/lsst/daf_butler/pull/161}{PR-161}. A major issue was then discovered when issuing rollback statements during error recovery stemming from assumptions made when implementing how all of the current SQL registries handle errors during transactions. A stopgap solution, that works for all currently implemented registries, was implemented in \href{https://github.com/lsst/daf_butler/pull/190}{PR-190} and a more complete solution was then implemented by Andy Salnikov in \href{https://github.com/lsst/daf_butler/pull/196}{PR-196}.
 
+
 Outstanding issues are presented in terms of security and authorization when dealing with both S3Datastore and PostgreSqlRegisty, with PostgreSqlRegisty being especially sensitive to these issues. Security has received the outmost attention by the LSST AWS PoC group. Significant attention was paid to preserving the flexibility of the authentication in order to be able to incorporate external authenticators such as Oracle Wallets and AWS IAM Roles and Policies. There were several different iterations and improvements made to the authentication implementation (\href{https://github.com/lsst/daf_butler/pull/189}{PR-189}, \href{https://github.com/lsst/daf_butler/pull/180}{PR-180} and \href{https://github.com/lsst/daf_butler/pull/191}{PR-191}) that resulted with the current implementation. An older Gen. 2 Butler module, `db\_auth`, was re-implemented in Python by Kian-Tat Lim and added to Gen. 3 Butler so that the module would support basic file based authentication in absence of external authentication methods. Additional layers of security are achieved through EC2/S3/RDS interfaces by IP white/blacklisting , IAM, Policies etc. These policies can be very granular, affecting individually selected objects, Bucket-wide to placing all instances on the same, externally innaccessible, Virtual Private Network (VPN).
 
 Adding the support for AWS into the Butler exercised almost the entirety of the Gen. 3 Data Butler. During the process many faults and unpredictable behaviors were discovered and solved. Many problems touched, and continue to exercise, the general Gen. 3 Data Butler implementation, as well as assumptions made during their implementation. Recounting the wide list of major improvements to the codebase, hopefully, reveals how productive this exercise has been in helping generalizing and strengthening the whole Gen3. Data Butler codebase.
+
+\subsection{PostgreSQL performance}
+
+The following described performance issue applies strictly to w\_2019\_38 builds and earlier. The QuantumGraph is created by issuing a very large SQL statement that, effectively, creates a cartesian product between many, of the 15-ish or so, tables in the registry. The results of the large query are then parsed in Python and a slew of many different, small, follow-up queries are issued. This diverse workflow presents a difficult challenge in DB optimization. The LSST DM team reports that on average it takes 0.5 to 1.5h to create QuantumGraphs on their infrastructure. In our tests we were unable to create even the simplest QuantumGraphs, even after doubling of the RDS instance resources, and were forced to abort multiple times after 30+h of execution. The lack of performance did not seem related to hardware limitations, since none of the performance metrics availible showed heavy hardware loads nor didthe problem go away even after significant increase of RDS resources. 
+
+PostgreSQL, and Oracle, regularly collect statistics on database objects used in queries. These statistics are then used to generate execution plans. These execution plans are then oftentimes cached. This in general results in performance gains. But because Butler generates all SQL dynamically there are no guarantees that a cached, or even pre-prepared execution plan can be executed. In PostgreSQL many of these optimizations then fail.
+
+Specifically what seems to happen with PostgreSQL is that all the views materialize completely on disk. Even when the views are part of larger statements, in which the outter statements have strict constraints on them, the outter constraints do not seem to penetrate to the view statement. It is unclear, from within \poc, whether Oracle DBMS does not suffer from this issue because it has a better SQL statement optimization engine or if this is something more directly tied to how PostgreSQL implements views. 
+
+The performance penalty of the behaviour is debilitating. Bellow is an abreviated query plan for the simplest case of \lstinline[basicstyle=\ttfamily]{select * from visit_detector_patch_join limit 4;} that suffers from the described issue.
+
+\begin{lstlisting}[style=sqlprompt]
+Limit .... (actual time=12732.766..12732.774 rows=4 loops=1)
+->Unique .... (actual time=12732.765..12732.770 rows=4 loops=1)
+  ->Sort .... (actual time=12732.764..12732.767 rows=6 loops=1)
+    Sort Key: ....
+    Sort Method: external merge  Disk: 209008kB
+    ->Hash Join .... (actual time=763.846..1524.504 rows=4642107 loops=1)
+      Hash Cond: ....
+      ->Seq Scan on .... (actual time=0.008..16.289 rows=206960 loops=1)
+      ->Hash .... (actual time=763.723..763.724 rows=3259107 loops=1)
+        Buckets: 65536  Batches: 64  Memory Usage: 3635kB
+        ->  Seq Scan on patch_skypix_join .... (actual time=0.006..240.128 rows=3259107 loops=1)
+Planning time: 0.323 ms
+Execution time: 12759.391 ms
+\end{lstlisting}
+
+Note that the total materialized size of the view on disk is 200MB and that it took 12 seconds to retrieve only 4 results! There is no clear solution to this problem from within the Middleware codebase. 
+
+The sollution is however possible by manually redefining the views as materialized views instead, adding triggers that recreate the views on any insert statement to the underlying tables that make the view, and then adding indexing onto the materialized views. This reduces the time it takes to create a QuantumGraph to the point where it's comparable to that reported by the DM team. The query plan for the same SQL select statement as described above now looks like:
+
+\begin{lstlisting}[style=sqlprompt]
+Limit .... (actual time=0.009..0.010 rows=4 loops=1)
+->Seq Scan on visit_detector_patch_join .... (actual time=0.008..0.008 rows=4 loops=1)
+Planning time: 0.053 ms
+Execution time: 0.021 ms
+\end{lstlisting}
+
+Recently the SQL schema and datamodel for the registries was reworked and completely re-implemented. We have not yet tested the performance of the new registry schema in PostgreSQL. The issues described here well optimize the set of specific queries, at the cost of a performance hit for all inserts into visits, patches..., but an important take away lesson here should be that because all of the SQL is generated completely dynamically guaranteeing execution plan stability and performance is dificult. Not all DBMSs optimize SQL statements euqally well. Tying the CI and testing to only one database doesn't suficiently test the code performance and because the SQL is generated completely dynamically to fix potential poor performance requires schema modifications to be made external to the Middleware code. Because some of the performance loss can be debilitating, it is possible that certain DBMSs are, in this implementation, tied into implementing unoptimal sollutions just to be able to run DRP. 
 
 \section{Results of the tract-sized runs}
 
@@ -125,7 +183,7 @@ The breakdown of the tasks in the workflow is in Table \ref{tab:taskBreakdown}.
 \input{taskBreakdown}
 
 Generally speaking, there are two types of jobs: small-memory and large-memory jobs.
-Small memory jobs take less than 4GB per jobs, and large memory jobs can take up to $\sim$30GB per jobs.
+Small memory jobs take less than 4GB per jobs, and large memory jobs can take up to $\sim$30GB per job.
 For simplicity, we consider all MakeWarpTask, CompareWarpAssembleCoaddTask, DeblendCoaddSourcesSingleTask, and MeasureMergedCoaddSourcesTask as large-memory jobs and for all of them set the required amount of memory to be $\sim$30GB as their job requirements, hence HTCondor only match them to machines with sufficient memory.
 AWS instances come with different flavors and the \texttt{r} family provides memory optimized instances with $\sim$8GB per core.
 The worker instances are configured to be HTCondor partitionable slots which dynamically splits resources and creates new slots to suit the jobs.
@@ -161,7 +219,6 @@ A Spot fleet containing 150 \texttt{m5.xlarge} instances ran the single frame pr
 600 jobs ran simultaneously during single frame processing.
 Larger fleets were used to help finishing the workflows in a shorter wallclock time.
 The run spanned two billing days.
-
 
 \subsection{Cost Analysis}
 
@@ -212,7 +269,7 @@ We also have not optimized the usage; more discussions are in the next session.
 
 \section{Potential Improvements and more lessons learned} \label{future}
 
-In this session we describe issues we have encountered during the execution and ideas to improve.
+In this session we describe issues we have encountered during the execution and ideas on how to improve the code or the instance and workflow management.
 We discuss both intermittent failures that we understand and expect to occasionally encounter even in production, as well as higher level design or tooling improvements.
 
 Failures can occur due to non-pipeline issues such as underlying infrastructure.
@@ -222,26 +279,26 @@ Some examples are listed below; most seem transient.
 
 \begin{enumerate}
 \item Database connection timeout. Attempting to connect to the RDS instance failed.
-\begin{lstlisting}[breaklines=true]
+\begin{lstlisting}[style=basherror]
 sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) could not connect to server: Connection timed out
 \end{lstlisting}
 \item
 After a file was added to a S3 bucket and during ingestion in the Butler registry, S3 reported a file does not exist.
 This will be fixed in \jira{DM-22201}.
-\begin{lstlisting}[breaklines=true]
+\begin{lstlisting}[style=basherror]
 FileNotFoundError: File at 's3://hsc-rc2-test1-hfc/repo-w38/hfc30/srcMatchFull/1316/srcMatchFull_1316_24_HSC_17.fits' does not exist; note that paths to ingest are assumed to be relative to self.root unless they are absolute.
 \end{lstlisting}
 \item S3 read timeout before science processing started in a job.
-\begin{lstlisting}[breaklines=true]
+\begin{lstlisting}[style=basherror]
 botocore.exceptions.ReadTimeoutError: Read timeout on endpoint URL: "None"
 \end{lstlisting}
 \item Out-of-memory while running jobs.
 For the same pipeline and input data, this is reproducible.
 But we may not always have accurate memory usage prediction for any input data before running the jobs.
 We can configure HTCondor to increase the memory requirement in the retry.
-However sometimes OOM crashed the instances and appeared as a network issue, an undesirable behaviour.
+However sometimes OOM crashed the instances and appeared as a network issue which is not  desirable behaviour.
 \item Launching HTCondor Annex workers failed with connectivity check collector issues.
-\begin{lstlisting}[breaklines=true]
+\begin{lstlisting}[style=basherror]
 Connectivity check found wrong collector (f5fc15573ffb9c93 vs a006066e73c412da).
 \end{lstlisting}
 \item Dataset ConflictingDefinitionError.
@@ -258,30 +315,25 @@ We discuss some ideas below.
 \begin{enumerate}
 \item Better job failure recovery strategies.
 Our jobs write directly to the S3 bucket and the RDS instance via the Data Butler.
-If a job fails in a state that partial outputs are written but the job does not fully finish, recovery is not trivial.
-We may want a wrapper around the Pipeline Task that commits a transaction only if the job succeeds, have a reliable way to overwrite files from a failed job, or other ways to handle such scenarios.
+If a job fails in a state that partial outputs are written but the job does not fully finish, recovery is not trivial. Such failed partial writes are handled on the registry side the DBMS but on the datastore side they are handled by wrapping failable transactions in a transaction context manager. The context manager takes a callable that then proceedes with the cleanup. For S3 datastore, at the time of writing, the utility functions preforming the cleanup have not yet been writte (in progress). The larger issue with job failures is the lack of DRP workflow failure handling. There is no way yet to reliably pause the DAG execution, overwrite files from a failed job, or other ways to handle such scenarios.
 \item Container based software stack.
-We have found it tricky to handle the LSST stack installation, dependencies, and environments to be used together with other software.
-One possible way to avoid the headaches is to use docker based stack releases.
-This may also ensure consistency of software on the master and the workers more easily.
+We have found it tricky to handle the LSST stack installation, dependencies, and environments to be used together with other software. One possible way to avoid the headaches is to use docker based stack releases. This may also ensure consistency of software on the master and the workers more easily, as well as improve shareability.
 \item Better cluster management tooling.
 Our current operational approach requires manually deploy suitable types and sizes of fleets based on our understanding of the overall workload.
 Strategies on the instance choices and timing of requests therefore affect the cost, and manual adjustments are usually needed to reduce cost.
 Annex can remove idle instances out of the condor pool but may not terminate the instances until the lease expires.
 Also once instances drop out of the pool they can't be added back easily.
 Tooling become essential for the operations.
-For example we may use scripts to auto-scale the Annex condor pool.
-An alternative approach is to use AWS Batch which automatically provisions the compute resources based on the workload and only charges for the actual resources used.
+For example we may use scripts to auto-scale the Annex condor pool based on the current demand for resources, or based on predictng resource demands from the Quantum Graph. Such situations can also be helped by utilizing some of other AWS services, such as \href{https://aws.amazon.com/swf/}{Simple Workflow service (SWF)} or \href{https://aws.amazon.com/batch/}{AWS Batch} service. This of course has the potential to bind many of the find sollutions strictly to AWS therefore any such requirements need to be handled with care.
 \item End-to-end CI.
 This should include all operational components to do an end-to-end run.
 This includes Butler repo generation, registry generation, Quantum Graph generation, job composition, workflow translation, job execution, and so on.
 Many of the components were in the development phase and workarounds were used during the PoC.
-For example a native Gen3 ingestion was not available so a Gen2-to-Gen3 conversion was needed.
+For example a native Gen3 ingestion was not available so a Gen2-to-Gen3 conversion was needed, and in fact many of the registries were migrated to RDS partially manually by executing bespoke scripts made specifically for such purpose that are not generally portable cross backwards-incompatible changes to the Middleware code.
 As we put together the pieces, the absence of to do so in an automatic fashion became a key burden.
-In retrospect we probably should have invested more time to automate the end-to-end workflow, even with workarounds.
-Looking ahead a first step could be a \texttt{ci\_hsc} like package with the S3 backend.
+In retrospect we probably should have invested more time to automate the end-to-end workflow, even with workarounds, but the efforts were plagued by the lack of cannonical ingest workflow. Additionally, in conversations with DM members, concerns were raised about having overly-inclusive CI tests. Adding S3 datastore CI tests to the default CI suite, while welcomed, would double the total CI execution time.
 \item Credential handling.
-In this PoC the worker image carry credentials in files \texttt{~/.lsst/db-auth.yaml} and \texttt{~/.aws/credentials} which is not the best practice of handling the access.
+Security concerns received special attention in the \poc. Natively none of the Middleware code requires the credentials to exist on the instance in plain text, even though they support that option. Authentication can be performed via \href{https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html}{Identity and Access Management Roles} to both S3 and RDS services. IAM Role authentication is more secure than other authentication methods, but require understanding of how AWS security and permissions work and sometimes require long-ish setup. For example for RDS IAM access an account admin needs to create the IAM Role then DB admin needs to log in to the DB interactively and create a role with rds\_iam permissions and then also grant usage priviledges on the DB schema, tables etc. While we have tried an IAM setup in the \poc we often stored credentials onto the master and worker instances in \texttt{~/.lsst/db-auth.yaml}, \texttt{~/.aws/credentials} or in environmental variables which is not the best practice of handling the access. Utilities and tooling that help speed up such setup would be highly desireable. 
 \item Robustify and give better error messages.
 It has been observed that sometimes the error messages could be misleading.
 
