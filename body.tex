@@ -1,5 +1,4 @@
 \newcommand{\poc}{AWS PoC}
-\newcommand{\dmtn}[1]{\href{https://dmtn-#1.lsst.io}{DMTN-#1}}
 
 \lstdefinestyle{basherror}{
   language=bash,
@@ -27,7 +26,7 @@
 \section{Background}
 
 In April 2019, LSST DM began a proof of concept project with the AWS and HTCondor teams to explore whether a cloud deployment of the Data Release Production (DRP) is feasible.
-The execution plan of the project is described in \dmtn{114}.
+The execution plan of the project is described in \citeds{DMTN-114}.
 For this project AWS granted us credits to use their platform.
 The team met biweekly to discuss the progress and plans.
 In this document we report on the work carried out, lessons learned as well as the results of scaling and pricing tests carried out by the \poc.
@@ -39,7 +38,7 @@ In this document we report on the work carried out, lessons learned as well as t
 
 \subsection{Progress in phases.}
 
-\dmtn{114} proposed development phases that broadly outlined how progress should be made and when performance would be monitored. The outlined plan was to move the execution to AWS without any backend modifications and then gradually switch out each component to AWS.
+\citeds{DMTN-114} proposed development phases that broadly outlined how progress should be made and when performance would be monitored. The outlined plan was to move the execution to AWS without any backend modifications and then gradually switch out each component to AWS.
 
 DRP is planned to executed on a shared POSIX-compliant filesystem. In the first phase such filesystem was replaced by \href{https://aws.amazon.com/efs/}{Amazon Elastic File System (Amazon EFS)}. EFS provides a POSIX-compliant, scalable, elastic NFS file system designed to provide parallel shared access to thousands of AWS compute instances. The computational resource was provided by the \href{https://aws.amazon.com/ec2/}{Amazon Elastic Compute 2 (EC22)} service. EC2 service provides secure, resizable compute capacity based on virtualization technologies. The data repository, including the datastore and the SQLite registry, was located on EFS that was mouted to each of the EC2 compute instances.
 
