@@ -1,5 +1,6 @@
-\begin{longtable} {|r|r|r|r|}
-\caption{Cost breakdown for each run \label{tab:billBreakdown}}\\
+\begin{table}[h!]
+\centering
+\begin{tabular} {|r|r|r|r|}
 \hline
 {}&\multicolumn{3}{c|}{Runs} \\ \hline
 \multirow{2}{*}{Category}&\multirow{2}{*}{20191026T041828}&\multirow{2}{*}{20191121T015100}&{20191127T192022}\\
@@ -10,4 +11,13 @@
 {S3 (including other storage cost)}&17.29&13.48& 21.48\\
 {Others/mostly EC2}&18.38 &7.12 &6.37\\ \hline
 {Total}&159.62&94.51&96.66\\ \hline
-\end{longtable} \normalsize
+\end{tabular} \normalsize
+\caption{Cost breakdown for each run}
+\label{tab:billBreakdown}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{billBreakdown.png}
+\caption{Cost breakdown for each run}
+\end{figure}
