@@ -32,39 +32,39 @@ The team met biweekly to discuss the progress and plans.
 In this document we report on the work carried out, lessons learned, as well as the results of scaling and pricing tests.
 
 
-\section{Architecture Design}
+\section{Technology stack}
 
-\subsection{Technology stack}
-
-\subsubsection{Amazon Elastic Compute Cloud (EC2)}
+\subsection{Amazon Elastic Compute Cloud (EC2)}
 
 \href{https://aws.amazon.com/ec2/}{Amazon Elastic Compute Cloud (EC2)} service provides secure, resizable compute capacity in the cloud based on virtualization technologies.
 The unit of compute resources is an instance, and users can scale up and down the number of instances.
 EC2 instances come with multiple instance types for a configuration of memory, CPU, and storage.
-Amazon Machine Image (AMI) bundle the Operating System (OS) with required data and configurations into a convenient image that can be launched on any EC2 instance type.
+An Amazon Machine Image (AMI) bundles the Operating System (OS) with required data and configurations into a convenient image that can be launched on any EC2 instance type.
 \href{https://aws.amazon.com/efs/}{Amazon Elastic File System (Amazon EFS)} provides a POSIX-compliant, scalable, elastic NFS file system designed to provide parallel shared access to thousands of AWS compute instances.
-\subsubsection{Amazon Simple Storage Service (S3)}
-\href{https://aws.amazon.com/s3/}{Simple Storage Service (S3)} is an object storage that allows massive amounts of unstructured data where each object typically includes the data, related metadata and is identified by a globally unique identifier, to be stored and accessed from EC2 instances in a durable and highly scalable way.
+We have used On-demand and Spot instances in the \poc.
+On demand instances cost more but they can not be deallocated by AWS. Spot instances are significantly cheaper, but at any time AWS, given a 2 mintue warning, can request the compute resources back and deallocate them.
+\subsection{Amazon Simple Storage Service (S3)}
+\href{https://aws.amazon.com/s3/}{Simple Storage Service (S3)} is an object storage that allows massive amounts of unstructured data where each object typically includes the data, related metadata and is identified by a globally unique identifier, to be stored and accessed from EC2 instances or elsewhere in a durable and highly scalable way.
 Buckets, organizational units in which related objects are generally stored, enable easier access and priviledges administration. Access, read, write, delete and other atomical units of action on the objects themselves can be allowed or forbidden at the account, bucket or individual object level. Logging is available for all actions on the Bucket level and/or at the individual object granularity. It is also possible to define and issue complex alert conditions on Bucket or object actions which can execute arbitrary actions or workflows, but S3 itself is not POSIX compliant.
-\subsubsection{PostgreSQL}
+\subsection{PostgreSQL}
 PostgreSQL is one of the most popular open source relational database systems available. The choice to go with PostgreSQL was based on the fact that it's a very popular and well supported open source software that suffers from no additional licensing fees usually associated with proprietary software. \href{https://aws.amazon.com/rds/}{Relational Database Service (RDS)} is the AWS cloud service that launches and configures databases with ease.
 The RDS databases can be backed up into snapshots as well as exported to downloadable files on S3.
-\subsubsection{HTCondor}
+\subsection{HTCondor}
 \href{https://research.cs.wisc.edu/htcondor}{HTCondor}\citep{condor-practice} provides distributed job parallelization and is a powerful batch system for high throughput computing (HTC).
 A HTCondor pool is a collection of compute resources, and HTCondor matches job requests with available resources following their job requirements.
-The \texttt{condor\_annex} module allows HTCondor deployment on cloud resources. Instances allocated by \texttt{condor\_annex} are added to a shared resource pool on which then jobs added in the job queue are scheduled on. Unused compute resources are automatically deallocated after some set time spent idling.
+The \texttt{condor\_annex} module allows HTCondor deployment on cloud resources. Instances allocated by \texttt{condor\_annex} are added to a shared resource pool on which jobs added in the job queue are scheduled on. Unused compute resources are automatically deallocated after some set time spent idling.
 HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/experiment-that-discovered-the-higgs-boson-uses-aws-to-probe-nature}{HEP Cloud project}, scaling up to 60,000 cores in multi-region deployement on AWS, and by \href{https://www.linkedin.com/pulse/using-50k-gpus-across-multiple-clouds-icecube-science-igor-sfiligoi}{IceCube experiment}, where they scaled up to 51,000 GPUs across multiple regions and multiple cloud providers (AWS, Azure, and Google Cloud).
-\subsubsection{Pegasus}
+\subsection{Pegasus}
 \href{https://pegasus.isi.edu/}{Pegasus}\citep{deelman-fgcs-2015} is a workflow management system built on top of HTCondor.
 Popular in large-scale scientific computing, it provides command line and API interfaces for scientists to write abstract workflow independent of the underlying computing infrastructure.
-Pegasus workflows are expressed as Directed Acyclic Graphs (DAGs) where jobs are the nodes and job dependencies are represented the edges.
+Pegasus workflows are expressed as Directed Acyclic Graphs (DAGs) where jobs are the nodes and job dependencies are represented by the edges.
 Pegasus utilizes HTCondor DAGMan as its execution engine, but also supports various execution environments and data management strategies.
-\subsubsection{LSST Generation 3 Middleware / Data Butler?}
+\subsection{LSST Software Stack / Science Pipelines / Generation 3 Middleware / Data Butler?}
 (In Sect \ref{sec:butler})
-\subsubsection{LSST Science Pipelines?}
 (Probably can skip)
 
-\subsection{System design}
+\section{Architecture design}
+
 
 The system at the end of the PoC is shown in Figure~\ref{fig:arch}.
 All components are hosted on the AWS platform.
@@ -76,17 +76,17 @@ All components are hosted on the AWS platform.
   \caption{Diagram of DRP on AWS architecture.}
 \end{figure}
 
-AMIs containing LSST Stack, Pegasus, configured HTCondor are pre-built in two flavors: master and worker. These contain the complete environment required to run DRP workflows and scale them out with HTCondor. The user launches an on-demand EC2 instance using the master AMI to be the HTCondor submit host and the central manager of HTCondor pool.
+AMIs containing LSST Software Stack, Pegasus, and configured HTCondor are pre-built in two flavors: master and worker. These contain the complete environment required to run DRP workflows and scale them out with HTCondor. The user launches an on-demand EC2 instance using the master AMI to be the submit host and the central manager of HTCondor pool.
 The user logs in to this master to control the workflow execution.
 
 The workflow of the LSST DRP in Generation 3 Middleware is represented as a Directed Acyclic Graph (DAG) known as Quantum Graph.
 In the Generation 3 Middleware, input and output datasets are defined in the Pipeline Tasks and each unit is known as a Quantum.
 The Quantum Graph is aware of the Quantum dependency and determines the execution workflow.
-For simplicity we map each Quantum to a job, despite this may not be optimal for the performance.
+For simplicity we map each Quantum to a standalone job, despite this may not be optimal for the performance.
 Pegasus is used to submit the workflow to HTCondor as well as monitor the workflow execution.
 Each LSST Pipeline Task Quantum is resource-independent. Pegasus adds other necessary jobs, such as data transfer, to the executable workflow. HTCondor DAGMan is the workflow execution engine behind Pegasus and controls the processes.
 
-Compute resources are procured from the master node via \texttt{condor\_annex} by targeting the worker AMI. Annex is a resource acquisition and external compute resource separation management unit. Each resource pool can have multiple annexes. Each annex manages its own lifecycle. It is possible to request on-demand or spot instance fleets. On demand instances cost more but they can not be deallocated by AWS. Spot fleet instances tend to be significantly cheaper, but at any time AWS, given a 2 mintue warning, can request the compute resources back and deallocate them.
+Compute resources are procured from the master node via \texttt{condor\_annex} by targeting the worker AMI. Annex is a resource acquisition and external compute resource separation management unit. Each resource pool can have multiple annexes. Each annex manages its own lifecycle. It is possible to request on-demand or spot instance fleets.
 
 LSST Pipeline jobs are executed on the worker instances; they use Data Butler for data access.
 New Data Butler backends were implemented during the PoC, see Sect \ref{sec:butler}.
@@ -101,7 +101,7 @@ Files that are not managed by Data Butler are managed by the Condor File IO via 
 
 We discussed different architecture designs but did not pursue all of them due to time constraints.
 
-One prominent idea was to use condor transfer to read and write files to S3, rather than relying on Data Butler to communicate directly with S3. In this design HTCondor controls all file transfers, and all datasets are declared in the execution workflow. The proposed implementation was partially external to the LSST code base, and such a data transfer plug-in was added to the HTCondor code base recently. In each job there is a POSIX data repository for local data access, and a mechanism is needed to trigger and perform data ingestion at a central S3 data repository. This requires additional Generation 3 Middleware utilities for posix-S3 datastore copying and URL generation. These issues disfavored this architecture. A favorable benefit of this approach is the potential of bulk data transfer management optimizations.
+One prominent idea was to use HTCondor utilities to transfer files with S3, rather than relying on Data Butler to communicate directly with S3. In this design HTCondor controls all file transfers, and all datasets are declared in the execution workflow. The proposed implementation was partially external to the LSST code base, and such a data transfer plug-in was added to the HTCondor code base recently. In each job there is a POSIX data repository for local data access, and a mechanism is needed to trigger and perform data ingestion at a central S3 data repository. This requires additional Generation 3 Middleware utilities for posix-S3 datastore copying and URL generation. These issues disfavored this architecture. A favorable benefit of this approach is the potential of bulk data transfer management optimizations.
 
 With respect to the database, we discussed the possibility of having local registries within individual jobs.
 Each job has a fast local SQLite registry.
@@ -122,10 +122,10 @@ The following approaches were taken.
 
 Before this \poc, the DRP execution relied a shared POSIX-compliant filesystem.
 In the first phase such filesystem was replaced by Amazon EFS.
-The data repository, including a POSIX datastore and a SQLite registry, was located on entirely EFS that was mouted to each of the EC2 compute instances.
+The data repository, including a POSIX datastore and a SQLite registry, was entirely located on EFS that was mouted to each of the EC2 compute instances.
 
 Later, the S3 datastore replaced the need of EFS, and the PostgreSQL RDS replaced the SQLite registry.
-Also, a Personal Condor Pool on an single EC2 instance was used before we tested the capability to launch new EC2 instances as the Condor workers and execute jobs.
+Also, a Personal HTCondor Pool on an single EC2 instance was used before we tested the capability to launch new EC2 instances as the HTCondor workers and execute jobs.
 This approach allowed us to debug and adapt more smoothly and always had a fallback option in integrating and testing new features and components.
 
 \subsection{Test minimally before scaling up}
@@ -138,19 +138,19 @@ For larger scale tests we used the \href{https://jira.lsstcorp.org/browse/DM-113
 \subsection{Use Generation 3 Middleware}
 
 One of the mandates in the \poc~was to use the Generation 3 Middleware (\citeds{DMTN-056}), which has been designed to ease the DRP execution and automation compared to the previous Generation 2 Middleware. Generation 3 Middleware design made it more pliable to required changes to the codebase, compared to Generation 2 Middleware, and, as it was still relatively early in its implementation, its simplicity helped move progress forward quicker than if Generation 2 Middleware was adopted.
-({\color{red} not sure I understand this?})
+({\color{red} not sure I understand or agree with all of the last sentence?})
 
 
-However, during the \poc the Generation 3 Middleware has been under active development. Backwards incompatible changes occurred often, and the APIs were unstable. Furthermore, there were no integration tests when the \poc~started and the test coverage has been suboptimal.
+However, during the \poc~the Generation 3 Middleware has been under active development. Backwards incompatible changes occurred often, and the APIs were unstable. Furthermore, there were no integration tests when the \poc~started and the test coverage has been suboptimal.
 Hence, changes often broke functionality.
-Lack of a good integration test is also a concern going forward.
+Lack of a good integration test is still a major concern going forward.
 New integration tests may not be accepted due to the much longer time required to run the test suite.
 
 Keeping this in mind, We decided not to always follow the bleeding edge version and updated only when unnecessary, such as important bug fixes. The stack versions should not have strong impacts in the \poc~conclusions in terms of the cloud feasibility.
 
 \subsection{Focus on end-to-end execution}
 
-Some potential optimizations and further investigations were identified throughout the PoC project but were not carried out.
+Potential optimizations and further investigations were identified throughout the PoC project but were not carried out.
 Some ideas are described in Sec \ref{future}.
 
 
@@ -213,7 +213,7 @@ Recently the SQL schema and datamodel for the registries was reworked and comple
 
 \section{Results of the tract-sized runs}
 
-After successful execution with the \texttt{ci\_hsc} dataset, we scaled up the run to one full tract of the HSC-RC2 dataset (\jira{DM-11345}).
+After successful execution with the \texttt{ci\_hsc} dataset, we scaled up the run to one full tract of the HSC-RC2 dataset, as defined in \jira{DM-11345}.
 The full HSC-RC2 input repository contains 108108 objects and totals $\sim$1.5TB, including 432 raw visits in 3 tracts and $\sim$0.7TB of calibration data.
 In this project, we targeted tract=9615 which was executed with the Oracle backend on the NCSA cluster in July 2019 as the S2019 milestone of the Generation 3 Middleware team; see \jira{DM-19915}.
 In terms of raw inputs, tract=9615 contribute around 26$\%$, or $\sim$0.2 TB, of the raw data in the HSC-RC2 dataset.
@@ -231,11 +231,12 @@ The breakdown of the tasks in the workflow is in Table \ref{tab:taskBreakdown}.
 
 Generally speaking, there are two types of jobs: small-memory and large-memory jobs.
 Small memory jobs take less than 4GB per jobs, and large memory jobs can take up to $\sim$30GB per job.
-For simplicity, we consider all MakeWarpTask, CompareWarpAssembleCoaddTask, DeblendCoaddSourcesSingleTask, and MeasureMergedCoaddSourcesTask as large-memory jobs and for all of them set the required amount of memory to be $\sim$30GB as their job requirements, hence HTCondor only match them to machines with sufficient memory.
+For simplicity, we consider all jobs of MakeWarpTask, CompareWarpAssembleCoaddTask, DeblendCoaddSourcesSingleTask, and MeasureMergedCoaddSourcesTask as large-memory jobs and require~$\sim$30GB of memory in their job requirements.
+HTCondor only matches jobs to machines with sufficient memory.
 AWS instances come with different flavors and the \texttt{r} family provides memory optimized instances with $\sim$8GB per core.
 The worker instances are configured to be HTCondor partitionable slots which dynamically splits resources and creates new slots to suit the jobs.
 
-The submit host is an AWS on-demand instance, typically m5.large or larger.
+The submit host is an AWS on-demand instance, typically \texttt{m5.large} or larger.
 Spot fleets are requested after the Pegasus workflow start.
 Typically \texttt{m4} or \texttt{m5} instances are used for the single frame processing or other small-memory jobs, and \texttt{r4} instances are used for large-memory jobs.
 After the workflow finishes, remaining running Spot instances may be terminated on the AWS console.
@@ -267,10 +268,10 @@ A Spot fleet containing 150 \texttt{m5.xlarge} instances ran the single frame pr
 Larger fleets were used to help finishing the workflows in a shorter wallclock time.
 This run spanned two billing days.
 
-\subsection{Cost Analysis}
+\subsection{Cost analysis}
 
 The main components of the charges come from (a) EC2 Spot instances, (b) EC2 on-demand instances, (c) S3 storage, (d) RDS, and (e) others.
-The numbers reported here are from the AWS Cost Explorer tools.
+We extract and analyze information using the AWS Cost Explorer tools.
 
 \begin{enumerate}
 \item \textbf{EC2 Spot instances}.
@@ -280,7 +281,7 @@ For instances used in our test runs, Spot instances cost around 20-25\% of the o
 Charges continue as long as the instances are up and running, even if no jobs are assigned to the instances.
 One hour of Spot instance typically costs \$0.045 for \texttt{m5.xlarge} and \$0.08 for \texttt{r4.2xlarge}.
 Different mix of instance types could affect the performance as well as the total cost.
-Including the instance idle time, we paid $\sim\$$0.035 per computing hour in average.
+Considering the idle time as necessary overheads, we paid $\sim$\$0.035 per active CPU hour in average.
 We could pay less with better workload control and instance lifecycle control.
 
 \item \textbf{On-demand EC2 instance}.
@@ -299,19 +300,20 @@ The charge of S3 is dominated by the data storage cost, which is \$0.023 per GB 
 This means it costs $\sim$\$1.2 per day storing the input repo ($\sim$1.5TB) alone, and $\sim$\$3.1 per day storing one set of the tract=9615 workflow outputs ($\sim$4.1TB).
 Note that outbound data transfer is not free at AWS.
 At the rate of \$0.09 per GB, transferring one tract=9615 output dataset out of AWS would cost~$\sim$\$370.
-We also incur charges per quantity of requests, which cost$\sim$\$4.3 for each run of the tract=9615 workflow.
+We also incur charges per quantity of requests, which cost $\sim$\$4.3 for each run of the tract=9615 workflow.
 
 \item \textbf{Other charges}.
 The majority of other charges come from the Elastic Block Store (EBS) that provides storage for use with EC2.
 This includes SSD-backed volumes and snapshots, both of which are priced per size and time.
 Other charges are relatively small, such as a Business Support plan to get help from AWS engineers, and CloudWatch for additional monitoring information.
-In our accounting here this also includes charges from instances used in work indepedent of the workflow execution, so this should also be seen as a upper bound.
+In our accounting here this also includes charges from instances used in work indepedent of the workflow execution, so this should be seen as an upper bound.
 
 \end{enumerate}
 
-Table \ref{tab:billBreakdown} provides an overview of the cost breakdown for each run.
+Table \ref{tab:billBreakdown} and Figure \ref{fig:billBreakdown} provide an overview of the cost breakdown for each run.
 This includes all charges incurred on the billing days during which the runs were done, so this can be seen as an upper bound.
-We also have not optimized the usage; more discussions are in Sect \ref{future}.
+The price drop between the first run and the others came from operator knowledge and optimization for this workflow execution.
+We have not optimized the overall usage; more discussions are in Sect \ref{future}.
 
 \input{billBreakdown}
 
@@ -323,7 +325,7 @@ In one of our tests, we doubled the input size to explore how it scales up.
 It scales roughly linearly in cost and total compute resources.
 In processing wallclock time, it does not take longer because more EC2 instances can be deployed.
 For one tract of DRP test workflow the cost was around \$95.
-If such scaling relationship holds for larger amount of data, 1000 visits will cost around \$850 to process.
+If such scaling relationship holds for larger amount of data, 1000 input HSC visits will cost around \$850 to process.
 
 
 \section{Potential Improvements and more lessons learned} \label{future}
@@ -395,6 +397,10 @@ In retrospect we probably should have invested more time to automate the end-to-
 Security concerns received special attention in the \poc. Natively none of the Middleware code requires the credentials to exist on the instance in plain text, even though they support that option. Authentication can be performed via \href{https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html}{Identity and Access Management Roles} to both S3 and RDS services. IAM Role authentication is more secure than other authentication methods, but require understanding of how AWS security and permissions work and sometimes require long-ish setup. For example for RDS IAM access an account admin needs to create the IAM Role then DB admin needs to log in to the DB interactively and create a role with rds\_iam permissions and then also grant usage priviledges on the DB schema, tables etc. While we have tried an IAM setup in the \poc we often stored credentials onto the master and worker instances in \texttt{~/.lsst/db-auth.yaml}, \texttt{~/.aws/credentials} or in environmental variables which is not the best practice of handling the access. Utilities and tooling that help speed up such setup would be highly desireable. 
 \item Robustify and give better error messages.
 It has been observed that sometimes the error messages could be misleading.
+\item Other AWS services.
+Other features and services, such as \href{https://aws.amazon.com/batch/}{AWS Batch} and \href{https://aws.amazon.com/glue/}{AWS Glue}, could potentially offer powerful boost to our use cases.
+AWS Batch provides EC2 lifecycle management and workflow control, which may reduce the cost of our EC2 usage.
+AWS Glue provides extract, transform, and load (ETL) services with respect to our S3 usage, improve our data warehousing experience, and form Data Lake.
 
 \end{enumerate}
 
