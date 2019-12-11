@@ -25,61 +25,48 @@
 
 \section{Background}
 
-In April 2019, LSST DM began a proof of concept (PoC) project with the Amazon Web Services (AWS\footnote{\url{https://aws.amazon.com/}}) and HTCondor\footnote{\url{https://research.cs.wisc.edu/htcondor/}} teams to explore whether a cloud deployment of the Data Release Production (DRP) is feasible.
+In April 2019, LSST DM began a proof of concept (PoC) project with the Amazon Web Services (AWS) and HTCondor teams to explore whether a cloud deployment of the Data Release Production (DRP) is feasible.
 The execution plan is in \citeds{DMTN-114}.
 For this project AWS granted us credits to use their platform.
 The team met biweekly to discuss the progress and plans.
 In this document we report on the work carried out, lessons learned, as well as the results of scaling and pricing tests.
 
 
-\section{Approaches and strategies}
-
-\poc's goal is to demonstrate that running Data Release Production (DRP) on AWS is possible.
-The following approaches were taken.
-
-\subsection{Progress in phases}
-
-\citeds{DMTN-114} proposed development phases that broadly outlined how progress should be made and when performance would be monitored. The outlined plan was to move the execution to AWS without any backend modifications and then gradually switch out each component to AWS.
-
-Before this \poc, the DRP execution relied a shared POSIX-compliant filesystem.
-In the first phase such filesystem was replaced by \href{https://aws.amazon.com/efs/}{Amazon Elastic File System (Amazon EFS)}. EFS provides a POSIX-compliant, scalable, elastic NFS file system designed to provide parallel shared access to thousands of AWS compute instances. The computational resource was provided by the \href{https://aws.amazon.com/ec2/}{Amazon Elastic Compute Cloud (EC2)} service. EC2 service provides secure, resizable compute capacity based on virtualization technologies. The data repository, including the datastore and the SQLite registry, was located on EFS that was mouted to each of the EC2 compute instances.
-
-\href{https://aws.amazon.com/s3/}{Simple Storage Service (S3)} was set to replace EFS. S3 is an object storage that allows massive amounts of unstructured data where each object typically includes the data, related metadata and is identified by a globally unique identifier, to be stored and accessed from EC2 instances in a durable and highly scalable way.
-Buckets, organizational units in which related objects are generally stored, enable easier access and priviledges administration. Access, read, write, delete and other atomical units of action on the objects themselves can be allowed or forbidden at the account, bucket or individual object level. Logging is available for all actions on the Bucket level and/or at the individual object granularity. It is also possible to define and issue complex alert conditions on Bucket or object actions which can execute arbitrary actions or workflows, but S3 itself is not POSIX compliant.
-
-The SQLite registry was to be replaced by PostgreSQL, one of the most popular open source relational database systems available. The choice to go with PostgreSQL was based on the fact that it's a very popular and well supported open source software that suffers from no additional licensing fees usually associated with proprietary software. \href{https://aws.amazon.com/rds/}{Relational Database Service (RDS)} is the AWS cloud service that launches and configures databases with ease. 
-
-\href{https://research.cs.wisc.edu/htcondor}{HTCondor} is a well used, popular scheduler typically used in shared filesystem HPC type clusters. A \texttt{condor\_annex} module allows HTCondor deployment on cloud resources. Instances allocated by \texttt{condor\_annex} are added to a shared resource pool on which then jobs added in the job queue are scheduled on. Unused compute resources are automatically deallocated after some set time spent idling. Personal Condor Pool on an single EC2 instance was used before we tested the capability to launch new EC22 instances as the Condor workers and execute jobs. HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/experiment-that-discovered-the-higgs-boson-uses-aws-to-probe-nature}{HEP Cloud project}, scaling up to 60,000 cores in multi-region deployement on AWS, and by \href{https://www.linkedin.com/pulse/using-50k-gpus-across-multiple-clouds-icecube-science-igor-sfiligoi}{IceCube experiment}, where they scaled up to 51,000 GPUs across multiple regions and multiple cloud providers (AWS, Azure, and Google Cloud).
-
-{\color{red} Maybe add pegasus here, or move lods of this text out into a special section for AWS services under intro, or just punt all of this to glossary (but then not easy to read fluently}
-
-This approach allowed us to debug and adapt more smoothly and always had a fallback option in integrating and testing new features and components.
-
-\subsection{Test minimally before scaling up}
-
-Small tasks are tested before workflows of jobs, and small workflows are tested before large workflows.
-The cannonical \href{https://github.com/lsst/ci\_hsc}{ci\_hsc} dataset and the accompanying CI workflow provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
-This test workflow is an important step in integrating new changes.
-For larger scale tests we used the \href{https://jira.lsstcorp.org/browse/DM-11345}{HSC-RC2 dataset}. 
-
-\subsection{Use Generation 3 Middleware}
-
-One of the mandates in the \poc was to use the Generation 3 Middleware (\citeds{DMTN-056}), which is designed to ease the DRP execution and automation compared to the previous Generation 2 Middleware. Generation 3 Middleware design made it more pliable to required changes to the codebase, compared to Generation 2 Middleware, and, as it was still relatively early in its implementation, the \poc also feedbacks to the Generation 3 Middleware development.
-
-However, during the \poc the Generation 3 Middleware has been under active development. Backwards incompatible changes ooccur often and often interfere with additions to the code. Even after the code was accepted because there are no integration tests being run for the added code, changes often break functionality. Even if potentially possible additional integration tests would not be accepted contribution as they would double, or worse, the total time required to run the test suite.
-
-Keeping this in mind, We decided not to always follow the bleeding edge version and updated only when unnecessary, such as important bug fixes. The stack versions should not have strong impacts in the \poc conclusions in terms of the cloud feasibility.
-
-\subsection{Focus on end-to-end execution}
-
-Focus on end-to-end execution and leave optimization behind.
-Some potential optimizations and further investigations were identified throughout the PoC project but were not carried out.
-Ideas are described in Sec \ref{future}.
-
-
 \section{Architecture Design}
 
-The system design at the end of the PoC is shown in Figure~\ref{fig:arch}.
+\subsection{Technology stack}
+
+\subsubsection{Amazon Elastic Compute Cloud (EC2)}
+
+\href{https://aws.amazon.com/ec2/}{Amazon Elastic Compute Cloud (EC2)} service provides secure, resizable compute capacity in the cloud based on virtualization technologies.
+The unit of compute resources is an instance, and users can scale up and down the number of instances.
+EC2 instances come with multiple instance types for a configuration of memory, CPU, and storage.
+Amazon Machine Image (AMI) bundle the Operating System (OS) with required data and configurations into a convenient image that can be launched on any EC2 instance type.
+\href{https://aws.amazon.com/efs/}{Amazon Elastic File System (Amazon EFS)} provides a POSIX-compliant, scalable, elastic NFS file system designed to provide parallel shared access to thousands of AWS compute instances.
+\subsubsection{Amazon Simple Storage Service (S3)}
+\href{https://aws.amazon.com/s3/}{Simple Storage Service (S3)} is an object storage that allows massive amounts of unstructured data where each object typically includes the data, related metadata and is identified by a globally unique identifier, to be stored and accessed from EC2 instances in a durable and highly scalable way.
+Buckets, organizational units in which related objects are generally stored, enable easier access and priviledges administration. Access, read, write, delete and other atomical units of action on the objects themselves can be allowed or forbidden at the account, bucket or individual object level. Logging is available for all actions on the Bucket level and/or at the individual object granularity. It is also possible to define and issue complex alert conditions on Bucket or object actions which can execute arbitrary actions or workflows, but S3 itself is not POSIX compliant.
+\subsubsection{PostgreSQL}
+PostgreSQL is one of the most popular open source relational database systems available. The choice to go with PostgreSQL was based on the fact that it's a very popular and well supported open source software that suffers from no additional licensing fees usually associated with proprietary software. \href{https://aws.amazon.com/rds/}{Relational Database Service (RDS)} is the AWS cloud service that launches and configures databases with ease.
+The RDS databases can be backed up into snapshots as well as exported to downloadable files on S3.
+\subsubsection{HTCondor}
+\href{https://research.cs.wisc.edu/htcondor}{HTCondor}\citep{condor-practice} provides distributed job parallelization and is a powerful batch system for high throughput computing (HTC).
+A HTCondor pool is a collection of compute resources, and HTCondor matches job requests with available resources following their job requirements.
+The \texttt{condor\_annex} module allows HTCondor deployment on cloud resources. Instances allocated by \texttt{condor\_annex} are added to a shared resource pool on which then jobs added in the job queue are scheduled on. Unused compute resources are automatically deallocated after some set time spent idling.
+HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/experiment-that-discovered-the-higgs-boson-uses-aws-to-probe-nature}{HEP Cloud project}, scaling up to 60,000 cores in multi-region deployement on AWS, and by \href{https://www.linkedin.com/pulse/using-50k-gpus-across-multiple-clouds-icecube-science-igor-sfiligoi}{IceCube experiment}, where they scaled up to 51,000 GPUs across multiple regions and multiple cloud providers (AWS, Azure, and Google Cloud).
+\subsubsection{Pegasus}
+\href{https://pegasus.isi.edu/}{Pegasus}\citep{deelman-fgcs-2015} is a workflow management system built on top of HTCondor.
+Popular in large-scale scientific computing, it provides command line and API interfaces for scientists to write abstract workflow independent of the underlying computing infrastructure.
+Pegasus workflows are expressed as Directed Acyclic Graphs (DAGs) where jobs are the nodes and job dependencies are represented the edges.
+Pegasus utilizes HTCondor DAGMan as its execution engine, but also supports various execution environments and data management strategies.
+\subsubsection{LSST Generation 3 Middleware / Data Butler?}
+(In Sect \ref{sec:butler})
+\subsubsection{LSST Science Pipelines?}
+(Probably can skip)
+
+\subsection{System design}
+
+The system at the end of the PoC is shown in Figure~\ref{fig:arch}.
 All components are hosted on the AWS platform.
 
 \begin{figure}
@@ -89,36 +76,82 @@ All components are hosted on the AWS platform.
   \caption{Diagram of DRP on AWS architecture.}
 \end{figure}
 
-Amazon Machine Image (AMI) bundle the Operating System (OS) with required data and configurations into a convenient image that can be launched on any EC2 instance type. We provide prebuilt AMIs containing LSST Stack, Pegasus, configured and running HTCondor in two flavors: master and the worker. These contain the complete environment required to run DRP workflows and scale them out with HTCondor. The user launches an on-demand instance using the master AMI, to which they log in and submit, scale out/down and run their workflows. 
+AMIs containing LSST Stack, Pegasus, configured HTCondor are pre-built in two flavors: master and worker. These contain the complete environment required to run DRP workflows and scale them out with HTCondor. The user launches an on-demand EC2 instance using the master AMI to be the HTCondor submit host and the central manager of HTCondor pool.
+The user logs in to this master to control the workflow execution.
 
-Compute resources are procured from the master node via \texttt{condor\_annex} by targeting the worker AMI. Annex is a resource acquisition and external compute resource separation management unit. Each resource pool can have multiple annexes. Each annex manages its own lifecycle and generally speaking jobs will be submitted only to the annex they started and/or own. It is possible to request on-demand or spot instance fleets. On demand instances cost more but they can not be deallocated by AWS. Spot fleet instances tend to be significantly cheaper, but at any time AWS, given a 2 mintue warning, can request the compute resources back and deallocate them.
-
-The execution workflow of the DRP in Generation 3 Middleware is represented as a Directed Acyclic Graph (DAG) known as Quantum Graph.
+The workflow of the LSST DRP in Generation 3 Middleware is represented as a Directed Acyclic Graph (DAG) known as Quantum Graph.
 In the Generation 3 Middleware, input and output datasets are defined in the Pipeline Tasks and each unit is known as a Quantum.
 The Quantum Graph is aware of the Quantum dependency and determines the execution workflow.
 For simplicity we map each Quantum to a job, despite this may not be optimal for the performance.
 Pegasus is used to submit the workflow to HTCondor as well as monitor the workflow execution.
 Each LSST Pipeline Task Quantum is resource-independent. Pegasus adds other necessary jobs, such as data transfer, to the executable workflow. HTCondor DAGMan is the workflow execution engine behind Pegasus and controls the processes.
-Job requirements such as memory usage are also defined, and HTCondor matches jobs with available and suitable resources.
 
-The datastore is located in an S3 Bucket and follows the same hierarchical structure that POSIX datastore does. Consumed and produced datasets are read and written directly from S3 as bytes, whenever possible, and only downloaded to temporary files for objects that are not serializable.
+Compute resources are procured from the master node via \texttt{condor\_annex} by targeting the worker AMI. Annex is a resource acquisition and external compute resource separation management unit. Each resource pool can have multiple annexes. Each annex manages its own lifecycle. It is possible to request on-demand or spot instance fleets. On demand instances cost more but they can not be deallocated by AWS. Spot fleet instances tend to be significantly cheaper, but at any time AWS, given a 2 mintue warning, can request the compute resources back and deallocate them.
 
-The registry is a RDS PostgreSQL database. The RDS databases can be backed up into snapshots as well as exported to downloadable files on S3. Since the directory structure is preserved by the S3 datastore the entire data repository is trivially transferable between the cloud and a local filesystem.
+LSST Pipeline jobs are executed on the worker instances; they use Data Butler for data access.
+New Data Butler backends were implemented during the PoC, see Sect \ref{sec:butler}.
 
-These new Data Butler backends were implemented during the PoC, see Sect \ref{sec:butler}. Files that are not managed by Data Butler are managed by the Condor File IO via Pegasus. These include the Data Butler configuration file, pipeline definition (Quantum) files, and the log files. The master instance serves as the staging site for these files. Various network protocols transfer the files between the master and the workers; instances do not share a filesystem.
+The Butler datastore is located in an S3 Bucket and follows the same hierarchical structure that POSIX datastore does. Consumed and produced datasets are read and written directly from S3 as bytes, whenever possible, and only downloaded to temporary files for objects that are not serializable.
+Since the directory structure is preserved by the S3 datastore the entire data repository is trivially transferable between the cloud and a local filesystem.
+
+The Butler registry is a RDS PostgreSQL database that keeps track of all LSST science files.
+Files that are not managed by Data Butler are managed by the Condor File IO via Pegasus. These include the Data Butler configuration file, pipeline definition (Quantum) files, and the log files. The master instance serves as the staging site for these files. Various network protocols transfer the files between the master and the workers; instances do not share a filesystem.
 
 \subsection{Alternative architecture designs}
 
 We discussed different architecture designs but did not pursue all of them due to time constraints.
 
-One prominent idea was to use condor transfer to read and write files to S3, rather than relying on Data Butler to communicate directly with S3. In this design HTCondor controls all file transfers, and all datasets are declared in the execution workflow. The proposed implementation was partially external to the LSST code base, and such a data transfer plug-in was added to the HTCondor code base recently. The discussed architecture implied that there is a local data repository from which data is read and processed into, and a mechanism to trigger data ingestion at a central data repository. This requires new Generation 3 Middleware features and additional utilities for posix-S3 datastore copying and URL generation. These issues disfavored this architecture. A favorable benefit of this approach is the potential of bulk data transfer management optimizations.
+One prominent idea was to use condor transfer to read and write files to S3, rather than relying on Data Butler to communicate directly with S3. In this design HTCondor controls all file transfers, and all datasets are declared in the execution workflow. The proposed implementation was partially external to the LSST code base, and such a data transfer plug-in was added to the HTCondor code base recently. In each job there is a POSIX data repository for local data access, and a mechanism is needed to trigger and perform data ingestion at a central S3 data repository. This requires additional Generation 3 Middleware utilities for posix-S3 datastore copying and URL generation. These issues disfavored this architecture. A favorable benefit of this approach is the potential of bulk data transfer management optimizations.
 
-With respect to the registry, we discussed the possibility of having local registries within individual jobs in a fully shared-nothing architecture.
+With respect to the database, we discussed the possibility of having local registries within individual jobs.
 Each job has a fast local SQLite registry.
 After each job finishes, the indiviual registry is then collated into the central database.
 Besides simplifying failure recovery, another benefit is to avoid potential bottlenecks related to large scale parallel SQL transactions by bundling multiple transactions together and handling database connections in a centralized manner.
-Implementing this requires more thorough design in conjunction with the Generation 3 Middleware.
-Also, the current implementations of the Butler registry depend on conflict resolution syntax to resolve insertions of complexs datasets, which may need changes for this design.
+This envisions a fully shared-nothing architecture, but implementing this requires more thorough design work in conjunction with the Generation 3 Middleware development.
+Also, the current implementations of the Butler registry depend on conflict resolution syntax to resolve insertions of complexs datasets, which may not work in this scenario.
+
+
+\section{Approaches and strategies}
+
+\poc's goal is to demonstrate that running Data Release Production (DRP) on AWS is possible.
+The following approaches were taken.
+
+\subsection{Progress in phases}
+
+\citeds{DMTN-114} proposed development phases that broadly outlined how progress can be made and when performance would be monitored. The outlined plan was to move the execution to AWS without any backend modifications first and then gradually switch out each component to AWS.
+
+Before this \poc, the DRP execution relied a shared POSIX-compliant filesystem.
+In the first phase such filesystem was replaced by Amazon EFS.
+The data repository, including a POSIX datastore and a SQLite registry, was located on entirely EFS that was mouted to each of the EC2 compute instances.
+
+Later, the S3 datastore replaced the need of EFS, and the PostgreSQL RDS replaced the SQLite registry.
+Also, a Personal Condor Pool on an single EC2 instance was used before we tested the capability to launch new EC2 instances as the Condor workers and execute jobs.
+This approach allowed us to debug and adapt more smoothly and always had a fallback option in integrating and testing new features and components.
+
+\subsection{Test minimally before scaling up}
+
+Small tasks are tested before workflows of jobs, and small workflows are tested before large workflows.
+The cannonical \href{https://github.com/lsst/ci\_hsc}{ci\_hsc} dataset and the accompanying CI workflow provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
+This test workflow is an important step in integrating new changes.
+For larger scale tests we used the \href{https://jira.lsstcorp.org/browse/DM-11345}{HSC-RC2 dataset}.
+
+\subsection{Use Generation 3 Middleware}
+
+One of the mandates in the \poc~was to use the Generation 3 Middleware (\citeds{DMTN-056}), which has been designed to ease the DRP execution and automation compared to the previous Generation 2 Middleware. Generation 3 Middleware design made it more pliable to required changes to the codebase, compared to Generation 2 Middleware, and, as it was still relatively early in its implementation, its simplicity helped move progress forward quicker than if Generation 2 Middleware was adopted.
+({\color{red} not sure I understand this?})
+
+
+However, during the \poc the Generation 3 Middleware has been under active development. Backwards incompatible changes occurred often, and the APIs were unstable. Furthermore, there were no integration tests when the \poc~started and the test coverage has been suboptimal.
+Hence, changes often broke functionality.
+Lack of a good integration test is also a concern going forward.
+New integration tests may not be accepted due to the much longer time required to run the test suite.
+
+Keeping this in mind, We decided not to always follow the bleeding edge version and updated only when unnecessary, such as important bug fixes. The stack versions should not have strong impacts in the \poc~conclusions in terms of the cloud feasibility.
+
+\subsection{Focus on end-to-end execution}
+
+Some potential optimizations and further investigations were identified throughout the PoC project but were not carried out.
+Some ideas are described in Sec \ref{future}.
 
 
 \section{Building AWS support into the Data Butler}
