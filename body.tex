@@ -59,9 +59,14 @@ HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/exp
 Popular in large-scale scientific computing, it provides command line and API interfaces for scientists to write abstract workflow independent of the underlying computing infrastructure.
 Pegasus workflows are expressed as Directed Acyclic Graphs (DAGs) where jobs are the nodes and job dependencies are represented by the edges.
 Pegasus utilizes HTCondor DAGMan as its execution engine, but also supports various execution environments and data management strategies.
-\subsection{LSST Software Stack / Science Pipelines / Generation 3 Middleware / Data Butler?}
-(In Sect \ref{sec:butler})
-(Probably can skip)
+\subsection{LSST Software Stack}
+The \href{https://pipelines.lsst.io/}{LSST Science Pipelines Software Stack} is a collection of data processing codes for optical and near-infrared astronomy, and is used for DRP \citep{2018PASJ...70S...5B}.
+Besides image processing and astronomical catalog analysis, it includes a middleware layer for data access, task definition and execution.
+The LSST Data Butler is a framework that abstracts the underlying data persistence and implementations from Science Pipelines algorithms, and a data repository is a set of datasets under control of the Data Butler \citep{2018arXiv181208085J}.
+The Data Butler concepts can be found in \citeds{LDM-463}.
+Recently, the middleware layer is ungergoing a major refactoring, with the new middleware known as the Generation 3 Middleware ("Gen3" Middleware; \citeds{DMTN-056}).
+This \poc~added new features in the Generation 3 Data Butler; see Sect \ref{sec:butler}.
+
 
 \section{Architecture design}
 
@@ -73,7 +78,7 @@ All components are hosted on the AWS platform.
   \centering
   \includegraphics[width=\textwidth]{figures/arch}
   \label{fig:arch}
-  \caption{Diagram of DRP on AWS architecture.}
+  \caption{Diagram of the AWS PoC system architecture.}
 \end{figure}
 
 AMIs containing LSST Software Stack, Pegasus, and configured HTCondor are pre-built in two flavors: master and worker. These contain the complete environment required to run DRP workflows and scale them out with HTCondor. The user launches an on-demand EC2 instance using the master AMI to be the submit host and the central manager of HTCondor pool.
@@ -131,7 +136,7 @@ This approach allowed us to debug and adapt more smoothly and always had a fallb
 \subsection{Test minimally before scaling up}
 
 Small tasks are tested before workflows of jobs, and small workflows are tested before large workflows.
-The cannonical \href{https://github.com/lsst/ci\_hsc}{ci\_hsc} dataset and the accompanying CI workflow provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
+The canonical \href{https://github.com/lsst/ci\_hsc}{ci\_hsc} dataset and the accompanying CI workflow provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
 This test workflow is an important step in integrating new changes.
 For larger scale tests we used the \href{https://jira.lsstcorp.org/browse/DM-11345}{HSC-RC2 dataset}.
 
@@ -312,7 +317,7 @@ In our accounting here this also includes charges from instances used in work in
 
 Table \ref{tab:billBreakdown} and Figure \ref{fig:billBreakdown} provide an overview of the cost breakdown for each run.
 This includes all charges incurred on the billing days during which the runs were done, so this can be seen as an upper bound.
-The price drop between the first run and the others came from operator knowledge and optimization for this workflow execution.
+The price dropped significantly from the first run to the rest, mostly due to operator knowledge and optimization for this workflow execution.
 We have not optimized the overall usage; more discussions are in Sect \ref{future}.
 
 \input{billBreakdown}
@@ -353,7 +358,7 @@ FileNotFoundError: File at 's3://hsc-rc2-test1-hfc/repo-w38/hfc30/srcMatchFull/1
 \begin{lstlisting}[style=basherror]
 botocore.exceptions.ReadTimeoutError: Read timeout on endpoint URL: "None"
 \end{lstlisting}
-\item Out-of-memory while running jobs.
+\item Worker out-of-memory while running jobs.
 For the same pipeline and input data, this is reproducible.
 But we may not always have accurate memory usage prediction for any input data before running the jobs.
 We can configure HTCondor to increase the memory requirement in the retry.
@@ -367,6 +372,11 @@ In rare occassions we observed dataset conflict errors from the registry without
 \jira{DM-21201} has refactored the code to robustify such transactions.
 It could also be related to Spot instances getting terminated;
 see next section on failure recovery.
+\item Database out of shared memory.
+\begin{lstlisting}[style=basherror]
+psycopg2.OperationalError: out of shared memory
+\end{lstlisting}
+It was usggested that increasing \texttt{max\_locks\_per\_transaction} may help.
 \end{enumerate}
 
 
@@ -374,40 +384,42 @@ More generally, improvements in system design and tooling rise to prominence.
 We discuss some ideas below.
 
 \begin{enumerate}
-\item Better job failure recovery strategies.
+\item \textbf{Better job failure recovery strategies}.
 Our jobs write directly to the S3 bucket and the RDS instance via the Data Butler.
 If a job fails in a state that partial outputs are written but the job does not fully finish, recovery is not trivial. Such failed partial writes are handled on the registry side the DBMS but on the datastore side they are handled by wrapping failable transactions in a transaction context manager. The context manager takes a callable that then proceedes with the cleanup. For S3 datastore, at the time of writing, the utility functions preforming the cleanup have not yet been writte (in progress). The larger issue with job failures is the lack of DRP workflow failure handling. There is no way yet to reliably pause the DAG execution, overwrite files from a failed job, or other ways to handle such scenarios.
-\item Container based software stack.
+\item \textbf{Container based software stack}.
 We have found it tricky to handle the LSST stack installation, dependencies, and environments to be used together with other software. One possible way to avoid the headaches is to use docker based stack releases. This may also ensure consistency of software on the master and the workers more easily, as well as improve shareability.
-\item Better cluster management tooling.
+\item \textbf{Better cluster management tooling}.
 Our current operational approach requires manually deploy suitable types and sizes of fleets based on our understanding of the overall workload.
 Strategies on the instance choices and timing of requests therefore affect the cost, and manual adjustments are usually needed to reduce cost.
 Annex can remove idle instances out of the condor pool but may not terminate the instances until the lease expires.
 Also once instances drop out of the pool they can't be added back easily.
 Tooling become essential for the operations.
-For example we may use scripts to auto-scale the Annex condor pool based on the current demand for resources, or based on predictng resource demands from the Quantum Graph. Such situations can also be helped by utilizing some of other AWS services, such as \href{https://aws.amazon.com/swf/}{Simple Workflow service (SWF)} or \href{https://aws.amazon.com/batch/}{AWS Batch} service. This of course has the potential to bind many of the find sollutions strictly to AWS therefore any such requirements need to be handled with care.
-\item End-to-end CI.
+For example we may use scripts to auto-scale the Annex condor pool based on the current demand for resources, or based on predictng resource demands from the Quantum Graph.
+The execution overheads from idle instances may be mitigated by utilizing some of other AWS services, such as \href{https://aws.amazon.com/swf/}{Simple Workflow service (SWF)} or \href{https://aws.amazon.com/batch/}{AWS Batch} service.
+This may bind the solutions strictly to AWS, a disadvantage of such adoption.
+\item \textbf{End-to-end CI}.
 This should include all operational components to do an end-to-end run.
 This includes Butler repo generation, registry generation, Quantum Graph generation, job composition, workflow translation, job execution, and so on.
 Many of the components were in the development phase and workarounds were used during the PoC.
 For example a native Generation 3 ingestion was not available so a Gen2-to-Gen3 conversion was needed, and in fact many of the registries were migrated to RDS partially manually by executing bespoke scripts made specifically for such purpose that are not generally portable cross backwards-incompatible changes to the Middleware code.
 As we put together the pieces, the absence of to do so in an automatic fashion became a key burden.
-In retrospect we probably should have invested more time to automate the end-to-end workflow, even with workarounds, but the efforts were plagued by the lack of cannonical ingest workflow. Additionally, in conversations with DM members, concerns were raised about having overly-inclusive CI tests. Adding S3 datastore CI tests to the default CI suite, while welcomed, would double the total CI execution time.
-\item Credential handling.
-Security concerns received special attention in the \poc. Natively none of the Middleware code requires the credentials to exist on the instance in plain text, even though they support that option. Authentication can be performed via \href{https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html}{Identity and Access Management Roles} to both S3 and RDS services. IAM Role authentication is more secure than other authentication methods, but require understanding of how AWS security and permissions work and sometimes require long-ish setup. For example for RDS IAM access an account admin needs to create the IAM Role then DB admin needs to log in to the DB interactively and create a role with rds\_iam permissions and then also grant usage priviledges on the DB schema, tables etc. While we have tried an IAM setup in the \poc we often stored credentials onto the master and worker instances in \texttt{~/.lsst/db-auth.yaml}, \texttt{~/.aws/credentials} or in environmental variables which is not the best practice of handling the access. Utilities and tooling that help speed up such setup would be highly desireable. 
-\item Robustify and give better error messages.
+In retrospect we probably should have invested more time to automate the end-to-end workflow, even with workarounds, but the efforts were plagued by the lack of a canonical ingest tool. Additionally, the DM team has concerns in the long execution time from overly-inclusive CI tests. Adding S3 datastore CI tests to the default CI suite would double the total CI execution time.
+\item \textbf{Credential handling}.
+Security concerns received special attention in the \poc. Natively none of the Middleware code requires the credentials to exist on the instance in plain text, even though they support that option. Authentication can be performed via \href{https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html}{Identity and Access Management Roles} to both S3 and RDS services. IAM Role authentication is more secure than other authentication methods, but require understanding of how AWS security and permissions work and sometimes require tedious setup. For example for RDS IAM access an account admin needs to create the IAM Role then DB admin needs to log in to the DB interactively and create a role with rds\_iam permissions and then also grant usage priviledges on the DB schema, tables etc. While we have tried an IAM setup in the \poc~we often stored credentials onto the master and worker instances in \texttt{\~{}/.lsst/db-auth.yaml}, \texttt{\~{}/.aws/credentials} or in environmental variables which is not the best practice of handling the access. Utilities and tooling that help speed up such setup would be highly desireable. 
+\item \textbf{Robustify and give better error messages}.
 It has been observed that sometimes the error messages could be misleading.
-\item Other AWS services.
-Other features and services, such as \href{https://aws.amazon.com/batch/}{AWS Batch} and \href{https://aws.amazon.com/glue/}{AWS Glue}, could potentially offer powerful boost to our use cases.
+\item \textbf{Other AWS services}.
+Services such as \href{https://aws.amazon.com/batch/}{AWS Batch} and \href{https://aws.amazon.com/glue/}{AWS Glue} could potentially offer powerful tools to our use cases.
 AWS Batch provides EC2 lifecycle management and workflow control, which may reduce the cost of our EC2 usage.
-AWS Glue provides extract, transform, and load (ETL) services with respect to our S3 usage, improve our data warehousing experience, and form Data Lake.
+AWS Glue provides extract, transform, and load (ETL) services with respect to our S3 storage usage, which may improve our data warehousing experience and form Data Lake.
 
 \end{enumerate}
 
 \section{Summary}
 
-In this \poc project we have demonstrated the feasibility of LSST DRP data processing on the cloud.
-We implemented AWS backends in the LSST Generation 3 Middleware, allowing processing entirely on the AWS platform using AWS S3 object store, Postgres database, and HTCondor software.
+In this \poc~project we have demonstrated the feasibility of LSST DRP data processing on the cloud.
+We implemented AWS backends in the LSST Generation 3 Middleware, allowing processing entirely on the AWS platform using AWS S3 object store, PostgreSQL database, and HTCondor software.
 We analyzed cost usage in our test execution, and estimated cost for larger processing campaigns.
-We also showcased our progress in a live demonstration in the LSST Project Community Workshop, as well as a hands-on tutorial in the Petabytes to Science Workshop.
+We showcased our progress in a live demonstration in the LSST Project Community Workshop in Aug 2019, as well as a \href{https://confluence.lsstcorp.org/display/DM/Tutorials+at+the+Kavli+workshop}{hands-on tutorial in the Petabytes to Science Workshop} in Nov 2019.
 Ideas of improvements necessary for larger-scale production are identified and discussed.
