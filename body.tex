@@ -225,7 +225,7 @@ Execution time: 0.021 ms
 
 Recently \jira{DM-17023} reworked and completely re-implemented the SQL schema and data model for the registries. We have not yet tested the performance of the new registry schema in PostgreSQL. The issues described here well optimize the set of specific queries, at the cost of a performance hit for all inserts into visits, patches..., but an important take away lesson here should be that because all of the SQL is generated completely dynamically guaranteeing execution plan stability and performance is dificult. Not all DBMSs optimize SQL statements equally well. Tying the CI and testing to only one database doesn't suficiently test the code performance and because the SQL is generated completely dynamically to fix potential poor performance requires schema modifications to be made external to the Middleware code. Because some of the performance loss can be debilitating, it is possible that certain DBMSs are, in this implementation, tied into implementing unoptimal solutions just to be able to run DRP.
 
-\section{Results of the tract-sized runs}
+\section{Execution results of the tract-sized DRP workflow}
 
 After successful execution with the \texttt{ci\_hsc} dataset, we scaled up the run to one full tract of the HSC-RC2 dataset, as defined in \jira{DM-11345}.
 The full HSC-RC2 input repository contains 108108 objects and totals $\sim$1.5TB, including 432 raw visits in 3 tracts and $\sim$0.7TB of calibration data.
@@ -326,20 +326,40 @@ In our accounting here this also includes charges from instances used in work in
 
 Table \ref{tab:billBreakdown} and Figure \ref{fig:billBreakdown} provide an overview of the cost breakdown for each run.
 This includes all charges incurred on the billing days during which the runs were done, so this can be seen as an upper bound.
-The price dropped significantly from the first run to the rest, mostly due to operator knowledge and optimization for this workflow execution.
+The price dropped significantly from the first run to the rest, mostly due to operator knowledge from the workflow execution to decrease instance idle time.
 We have not optimized the overall usage; more discussions are in Sect \ref{future}.
 
 \input{billBreakdown}
 
-\subsection{Cost projection}
+\subsection{Cost comparision and projection}
 
 The raw input exposures in the HSC-RC2 tract=9615 workflow contains $\sim$0.2TB from 112 visits.
-Compared to one night of LSST data in full operations, this is only $\sim$11\% in the number of visits.
+Only the CCD images overlapping the tract area were included in the workflow; so only $\sim$122 GB of raw inputs are used.
+Compared to one night of LSST data in full operations, this is only $\sim$11\% in the number of visits, or $\sim$1\% in the data volumne.
+In our test runs, one tract of the DRP test workflow cost around \$95.
+
+The same tract of data were processed on the NCSA Verification Cluster using Generation 2 Science Pipelines from the same \texttt{w\_2019\_38} release \jira{DM-21386}.
+The equivalent workflow took 17.8 node-hours (including single frame, coadd, and multiband processing).
+The cost of the current NCSA Verification Cluster (not including labor) is $\sim$\$0.017 per core-hour, or $\sim$\$0.408 per node-hour.
+Therefore we may think that the Generation 2 version of the same processing cost \$7.26.
+This execution time was shorter than the average tract exeuction time, 59 node-hours per HSC-WIDE tract, in the S18 HSC-PDR1 reprocessing reported in \href{https://confluence.lsstcorp.org/display/DM/S18+HSC+PDR1+reprocessing}.
+But that run was based on a release from 2018, and the performance is known to vary.
+\href{https://confluence.lsstcorp.org/display/~sthrush/Node+Utilization+for++HSC-RC2+Reprocessing+Jobs} provides an example how execution time changes between different versions of the LSST Stack.
+The performance differences between Generation 2 and Generation 3 Science Pipelines is not ewll understood either.
+
+Another data point is the same HSC-RC2 tract=9615 workflow processed on the NCSA Verification Cluster and Oracle database using Generation 3 Science Pipelines from the \texttt{w\_2019\_28} release \jira{DM-19915}.
+It used 10 nodes of the NCSA Verification Cluster for 8.8 hours; the nominal cost was then $\sim$\$36.
+We note that the cumulative job wall time was 36.3 days in this \texttt{w\_2019\_28} run, much shorter than our run on AWS with \texttt{w\_2019\_38} where the cumulative job wall time was around 62 days (Table \ref{tab:runSummary}).
+In the newer LSST Stack versions there are more jobs in total for this workflow.
+But we do not know if the difference is dominated by the LSST Stack versions, infrastucture, or other factors.
+
+Roughly speaking we may scale the cost with the input data size.
 In one of our tests, we doubled the input size to explore how it scales up.
-It scales roughly linearly in cost and total compute resources.
-In processing wallclock time, it does not take longer because more EC2 instances can be deployed.
-For one tract of DRP test workflow the cost was around \$95.
-If such scaling relationship holds for larger amount of data, 1000 input HSC visits will cost around \$850 to process.
+It scaled roughly linearly in cost and total compute resources.
+In processing wallclock time, it did not take longer because more EC2 instances could be deployed.
+Following \citeds{DMTN-135}, there will be annually 4550 TB of raw science data for LSST DRP.
+If the scaling relationship holds, the DRP processing would cost $\sim$\$3.5 million annually.
+Note that there are many ways to improve the efficiency and the \poc~project did not put effort into cost optimization.
 
 
 \section{Potential Improvements and more lessons learned} \label{future}
