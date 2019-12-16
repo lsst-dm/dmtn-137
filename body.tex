@@ -359,8 +359,8 @@ Roughly speaking we may scale the cost with the input data size.
 In one of our tests, we doubled the input size to explore how it scales up.
 It scaled roughly linearly in cost and total compute resources.
 In processing wallclock time, it did not take longer because more EC2 instances could be deployed.
-Following \citeds{DMTN-135}, there will be annually 4550 TB of raw science data for LSST DRP.
-If the scaling relationship holds, the processing would cost $\sim$\$3.5 million for one year of DRP.
+Following \citeds{DMTN-135}, there will be annually 1911 TB of raw science data with lossless compression for LSST DRP.
+If the scaling relationship holds, the processing would cost $\sim$\$1.5 million for the first year of DRP.
 Note that there are many ways to improve the efficiency and the \poc~project did not put effort into cost optimization.
 Also AWS has pre-purchase plans and other discounts that may help reducing the cost.
 
