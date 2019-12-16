@@ -1,22 +1,23 @@
 \begin{table}
 \centering
-\begin{tabular} {|r|r|}
-\hline 
-{Task}&{Count}\\ \hline 
-Initialization&1\\
-IsrTasks&6787\\
-CharacterizeImageTasks&6787\\
-CalibrateTasks&6787\\
-MakeWarpTasks&4580\\
-CompareWarpAssembleCoaddTasks&395\\
-DetectCoaddSourcesTasks&395\\
-MergeDetectionsTasks&79\\
-DeblendCoaddSourcesSingleTasks&395\\
-MeasureMergedCoaddSourcesTasks&395\\
-MergeMeasurementsTasks&79\\
-ForcedPhotCoaddTasks&395\\ \hline
-Total&27075\\ \hline
+\begin{tabular} {|r|r|r|}
+\hline
+{Task}&{Count}    &{Mean Runtime (sec)} \\ \hline
+Initialization&1  & 1696.0 \\
+IsrTasks&6787     &55.2 \\
+CharacterizeImageTasks&6787 &134.1   \\
+CalibrateTasks&6787  &55.5  \\
+MakeWarpTasks&4580   &169.3 \\
+CompareWarpAssembleCoaddTasks&395 & 1156.0  \\
+DetectCoaddSourcesTasks&395   &87.8 \\
+MergeDetectionsTasks&79       &58.8\\
+DeblendCoaddSourcesSingleTasks&395  &248.8   \\
+MeasureMergedCoaddSourcesTasks&395  &2777.0  \\
+MergeMeasurementsTasks&79   &43.3 \\
+ForcedPhotCoaddTasks&395    &3347.0\\ \hline
+Total&27075   & \\ \hline
 \end{tabular}
-\caption{Task breakdown of the HSC-RC2 tract=9615 workflow}
+\caption{Task breakdown of the HSC-RC2 tract=9615 workflow.
+The mean runtime is the time spent on the resource as seen by Condor DAGMan in the 20191127T192022 run}
 \label{tab:taskBreakdown}
 \end{table}

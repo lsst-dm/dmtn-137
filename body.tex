@@ -29,8 +29,8 @@ In April 2019, LSST DM began a proof of concept (PoC) project with the Amazon We
 The execution plan is in \citeds{DMTN-114}.
 For this project AWS granted us credits to use their platform.
 The team met biweekly to discuss the progress and plans.
-In this document we report on the work carried out, lessons learned, as well as the results of scaling and pricing tests.
-
+In this document we report on the work carried out and lessons learned.
+Results of scaling and pricing tests are in Sect \ref{results}.
 
 \section{Technology stack}
 
@@ -226,6 +226,7 @@ Execution time: 0.021 ms
 Recently \jira{DM-17023} reworked and completely re-implemented the SQL schema and data model for the registries. We have not yet tested the performance of the new registry schema in PostgreSQL. The issues described here well optimize the set of specific queries, at the cost of a performance hit for all inserts into visits, patches..., but an important take away lesson here should be that because all of the SQL is generated completely dynamically guaranteeing execution plan stability and performance is dificult. Not all DBMSs optimize SQL statements equally well. Tying the CI and testing to only one database doesn't suficiently test the code performance and because the SQL is generated completely dynamically to fix potential poor performance requires schema modifications to be made external to the Middleware code. Because some of the performance loss can be debilitating, it is possible that certain DBMSs are, in this implementation, tied into implementing unoptimal solutions just to be able to run DRP.
 
 \section{Execution results of the tract-sized DRP workflow}
+\label{results}
 
 After successful execution with the \texttt{ci\_hsc} dataset, we scaled up the run to one full tract of the HSC-RC2 dataset, as defined in \jira{DM-11345}.
 The full HSC-RC2 input repository contains 108108 objects and totals $\sim$1.5TB, including 432 raw visits in 3 tracts and $\sim$0.7TB of calibration data.
@@ -245,8 +246,9 @@ The breakdown of the tasks in the workflow is in Table \ref{tab:taskBreakdown}.
 
 Generally speaking, there are two types of jobs: small-memory and large-memory jobs.
 Small memory jobs take less than 4GB per jobs, and large memory jobs can take up to $\sim$30GB per job.
-For simplicity, we consider all jobs of MakeWarpTask, CompareWarpAssembleCoaddTask, DeblendCoaddSourcesSingleTask, and MeasureMergedCoaddSourcesTask as large-memory jobs and require~$\sim$30GB of memory in their job requirements.
-HTCondor only matches jobs to machines with sufficient memory.
+For simplicity, we consider all jobs of MakeWarpTask, CompareWarpAssembleCoaddTask, DeblendCoaddSourcesSingleTask, and MeasureMergedCoaddSourcesTask as large-memory jobs.
+In terms of total runtime, around 45\% of the jobs are large-memory jobs.
+For large-memory jobs we require~$\sim$30GB of memory in their job requirements, and HTCondor only matches jobs to machines with sufficient memory.
 AWS instances come with different flavors and the \texttt{r} family provides memory optimized instances with $\sim$8GB per core.
 The worker instances are configured to be HTCondor partitionable slots which dynamically splits resources and creates new slots to suit the jobs.
 
@@ -338,18 +340,18 @@ Only the CCD images overlapping the tract area were included in the workflow; so
 Compared to one night of LSST data in full operations, this is only $\sim$11\% in the number of visits, or $\sim$1\% in the data volumne.
 In our test runs, one tract of the DRP test workflow cost around \$95.
 
-The same tract of data were processed on the NCSA Verification Cluster using Generation 2 Science Pipelines from the same \texttt{w\_2019\_38} release \jira{DM-21386}.
-The equivalent workflow took 17.8 node-hours (including single frame, coadd, and multiband processing).
+The same tract of data were processed on the NCSA Verification Cluster using Generation 2 Science Pipelines from the same \texttt{w\_2019\_38} release (\jira{DM-21386}).
+The equivalent workflow, including single frame, coadd, and multiband processing, took 17.8 node-hours.
 The cost of the current NCSA Verification Cluster (not including labor) is $\sim$\$0.017 per core-hour, or $\sim$\$0.408 per node-hour.
 Therefore we may think that the Generation 2 version of the same processing cost \$7.26.
-This execution time was shorter than the average tract exeuction time, 59 node-hours per HSC-WIDE tract, in the S18 HSC-PDR1 reprocessing reported in \href{https://confluence.lsstcorp.org/display/DM/S18+HSC+PDR1+reprocessing}.
+This execution time was shorter than the average tract exeuction time, 59 node-hours per HSC-WIDE tract, in the S18 HSC-PDR1 reprocessing (\url{https://confluence.lsstcorp.org/display/DM/S18+HSC+PDR1+reprocessing}).
 But that run was based on a release from 2018, and the performance is known to vary.
-\href{https://confluence.lsstcorp.org/display/~sthrush/Node+Utilization+for++HSC-RC2+Reprocessing+Jobs} provides an example how execution time changes between different versions of the LSST Stack.
+\url{https://confluence.lsstcorp.org/display/~sthrush/Node+Utilization+for++HSC-RC2+Reprocessing+Jobs} provides an example how execution time of HSC-RC2 changeed between different versions of the LSST Stack in 2018.
 The performance differences between Generation 2 and Generation 3 Science Pipelines is not ewll understood either.
 
-Another data point is the same HSC-RC2 tract=9615 workflow processed on the NCSA Verification Cluster and Oracle database using Generation 3 Science Pipelines from the \texttt{w\_2019\_28} release \jira{DM-19915}.
-It used 10 nodes of the NCSA Verification Cluster for 8.8 hours; the nominal cost was then $\sim$\$36.
-We note that the cumulative job wall time was 36.3 days in this \texttt{w\_2019\_28} run, much shorter than our run on AWS with \texttt{w\_2019\_38} where the cumulative job wall time was around 62 days (Table \ref{tab:runSummary}).
+Another data point is the same HSC-RC2 tract=9615 workflow processed on the NCSA Verification Cluster and Oracle database using Generation 3 Science Pipelines from the \texttt{w\_2019\_28} release (\jira{DM-19915}).
+It took 8.8 hours on 10 nodes of the NCSA Verification Cluster; the nominal cost was then $\sim$\$36.
+We note that the cumulative job wall time was 36.3 days in the \texttt{w\_2019\_28} run, much shorter than our run on AWS with \texttt{w\_2019\_38} where the cumulative job wall time was around 62 days (Table \ref{tab:runSummary}).
 In the newer LSST Stack versions there are more jobs in total for this workflow.
 But we do not know if the difference is dominated by the LSST Stack versions, infrastucture, or other factors.
 
@@ -358,8 +360,9 @@ In one of our tests, we doubled the input size to explore how it scales up.
 It scaled roughly linearly in cost and total compute resources.
 In processing wallclock time, it did not take longer because more EC2 instances could be deployed.
 Following \citeds{DMTN-135}, there will be annually 4550 TB of raw science data for LSST DRP.
-If the scaling relationship holds, the DRP processing would cost $\sim$\$3.5 million annually.
+If the scaling relationship holds, the processing would cost $\sim$\$3.5 million for one year of DRP.
 Note that there are many ways to improve the efficiency and the \poc~project did not put effort into cost optimization.
+Also AWS has pre-purchase plans and other discounts that may help reducing the cost.
 
 
 \section{Potential Improvements and more lessons learned} \label{future}
