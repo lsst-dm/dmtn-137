@@ -269,12 +269,12 @@ Table \ref{tab:runSummary} lists the runtime as reported by Pegasus tools.
 In the first successful run \texttt{20191026T041828+0000}, a fleet of 40 \texttt{m5.xlarge} instances were used for single frame processing and then a fleet 50 \texttt{r4.2xlarge} memory optimized instances for the rest.
 A \texttt{m5.large} on-demand instance served as the master.
 The single frame processing part finished in ~4 hours; coadd and beyond took ~16 hours.
-In this run, the memory requirement of the large-memory jobs was slightly higher than half of a \texttt{r4.2xlarge}, resulting in instance resources not fully used.
+In this run, the memory requirement of the large-memory jobs was slightly higher than half of a \texttt{r4.2xlarge}, resulting in instance resources not fully used for some time.
 This run spanned two billing days.
 
 In the repeated run \texttt{20191121T015100+0000}, the master was also a \texttt{m5.large} on-demand Instance.
 Fleets containing 75 \texttt{m4.xlarge} instances and 50 \texttt{r4.2xlarge} were launched.
-The memory requirement of the large-memory jobs was adjusted so that two such jobs can run on a \texttt{r4.2xlarge} simultaneously.
+The memory requirement of the large-memory jobs was adjusted down slightly so that two such jobs can run on a \texttt{r4.2xlarge} simultaneously.
 Due to the larger fleet, the whole workflow finished within 12 hours in one bill day.
 
 We then ran two of the same workflow graphs \texttt{20191127T192022+0000} and \texttt{20191127T192345+0000} simultaneously, simulating a larger input size.
@@ -337,17 +337,17 @@ We have not optimized the overall usage; more discussions are in Sect \ref{futur
 
 The raw input exposures in the HSC-RC2 tract=9615 workflow contains $\sim$0.2TB from 112 visits.
 Only the CCD images overlapping the tract area were included in the workflow; so only $\sim$122 GB of raw inputs are used.
-Compared to one night of LSST data in full operations, this is only $\sim$11\% in the number of visits, or $\sim$1\% in the data volumne.
+Compared to one night of LSST data in full operations, this is only $\sim$11\% in the number of visits, or $\sim$2\% in the data volume.
 In our test runs, one tract of the DRP test workflow cost around \$95.
 
 The same tract of data were processed on the NCSA Verification Cluster using Generation 2 Science Pipelines from the same \texttt{w\_2019\_38} release (\jira{DM-21386}).
 The equivalent workflow, including single frame, coadd, and multiband processing, took 17.8 node-hours.
-The cost of the current NCSA Verification Cluster (not including labor) is $\sim$\$0.017 per core-hour, or $\sim$\$0.408 per node-hour.
+The cost of the current NCSA Verification Cluster (not including labor) is $\sim$\$0.017 per core-hour, or $\sim$\$0.408 per node-hour (\citeds{DMTN-135}).
 Therefore we may think that the Generation 2 version of the same processing cost \$7.26.
 This execution time was shorter than the average tract exeuction time, 59 node-hours per HSC-WIDE tract, in the S18 HSC-PDR1 reprocessing (\url{https://confluence.lsstcorp.org/display/DM/S18+HSC+PDR1+reprocessing}).
 But that run was based on a release from 2018, and the performance is known to vary.
-\url{https://confluence.lsstcorp.org/display/~sthrush/Node+Utilization+for++HSC-RC2+Reprocessing+Jobs} provides an example how execution time of HSC-RC2 changeed between different versions of the LSST Stack in 2018.
-The performance differences between Generation 2 and Generation 3 Science Pipelines is not ewll understood either.
+\url{https://confluence.lsstcorp.org/display/~sthrush/Node+Utilization+for++HSC-RC2+Reprocessing+Jobs} provides an example how execution time of HSC-RC2 changed between different versions of the LSST Stack in 2018.
+The performance differences between Generation 2 and Generation 3 Science Pipelines is not well understood either.
 
 Another data point is the same HSC-RC2 tract=9615 workflow processed on the NCSA Verification Cluster and Oracle database using Generation 3 Science Pipelines from the \texttt{w\_2019\_28} release (\jira{DM-19915}).
 It took 8.8 hours on 10 nodes of the NCSA Verification Cluster; the nominal cost was then $\sim$\$36.
@@ -355,12 +355,13 @@ We note that the cumulative job wall time was 36.3 days in the \texttt{w\_2019\_
 In the newer LSST Stack versions there are more jobs in total for this workflow.
 But we do not know if the difference is dominated by the LSST Stack versions, infrastucture, or other factors.
 
-Roughly speaking we may scale the cost with the input data size.
+Following \citeds{DMTN-135} we scale the cost with the input data size.
+To estimate cost we multiply the nominal cost per input data by the estimated size of LSST data.
 In one of our tests, we doubled the input size to explore how it scales up.
 It scaled roughly linearly in cost and total compute resources.
-In processing wallclock time, it did not take longer because more EC2 instances could be deployed.
-Following \citeds{DMTN-135}, there will be annually 1911 TB of raw science data with lossless compression for LSST DRP.
-If the scaling relationship holds, the processing would cost $\sim$\$1.5 million for the first year of DRP.
+In wallclock time, it did not take longer because more EC2 instances could be deployed.
+For LSST DRP, there will be annually 1911 TB of raw science data with lossless compression.
+Based on an input size of 122 GB and a cost of \$95 from our DRP test workflow, if the scaling relationship holds, the LSST processing would cost $\sim$\$1.5 million for the first year of DRP.
 Note that there are many ways to improve the efficiency and the \poc~project did not put effort into cost optimization.
 Also AWS has pre-purchase plans and other discounts that may help reducing the cost.
 
@@ -441,6 +442,7 @@ In retrospect we probably should have invested more time to automate the end-to-
 Security concerns received special attention in the \poc. Natively none of the Middleware code requires the credentials to exist on the instance in plain text, even though they support that option. Authentication can be performed via \href{https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html}{Identity and Access Management Roles} to both S3 and RDS services. IAM Role authentication is more secure than other authentication methods, but require understanding of how AWS security and permissions work and sometimes require tedious setup. For example for RDS IAM access an account admin needs to create the IAM Role then DB admin needs to log in to the DB interactively and create a role with rds\_iam permissions and then also grant usage priviledges on the DB schema, tables etc. While we have tried an IAM setup in the \poc~we often stored credentials onto the master and worker instances in \texttt{\~{}/.lsst/db-auth.yaml}, \texttt{\~{}/.aws/credentials} or in environmental variables which is not the best practice of handling the access. Utilities and tooling that help speed up such setup would be highly desireable. 
 \item \textbf{Robustify and give better error messages}.
 It has been observed that sometimes the error messages could be misleading.
+Also, scaling tests of a more substantial size are critial to find breaking points and bottlenecks.
 \item \textbf{Other AWS services}.
 Services such as \href{https://aws.amazon.com/batch/}{AWS Batch} and \href{https://aws.amazon.com/glue/}{AWS Glue} could potentially offer powerful tools to our use cases.
 AWS Batch provides EC2 lifecycle management and workflow control, which may reduce the cost of our EC2 usage.
