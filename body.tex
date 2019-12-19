@@ -405,11 +405,16 @@ In rare occassions we observed dataset conflict errors from the registry without
 \jira{DM-21201} has refactored the code to robustify such transactions.
 It could also be related to Spot instances getting terminated;
 see next section on failure recovery.
-\item Database out of shared memory.
+\item Database instance not sized big enough.
+We have seen
 \begin{lstlisting}[style=basherror]
 psycopg2.OperationalError: out of shared memory
 \end{lstlisting}
-It was usggested that increasing \texttt{max\_locks\_per\_transaction} may help.
+and
+\begin{lstlisting}[style=basherror]
+sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) FATAL:  remaining connection slots are reserved for non-replication superuser connections
+\end{lstlisting}
+These were resolved by increasing \texttt{max\_locks\_per\_transaction}, the cache size, and \texttt{max\_connections}.
 \end{enumerate}
 
 
