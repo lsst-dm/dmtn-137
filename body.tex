@@ -64,7 +64,7 @@ The \href{https://pipelines.lsst.io/}{LSST Science Pipelines Software Stack} is 
 Besides image processing and astronomical catalog analysis, it includes a middleware layer for data access, task definition and execution.
 The LSST Data Butler is a framework that abstracts the underlying data persistence and implementations from Science Pipelines algorithms, and a data repository is a set of datasets under control of the Data Butler \citep{2018arXiv181208085J}.
 The Data Butler concepts can be found in \citeds{LDM-463}.
-Recently, the middleware layer is ungergoing a major refactoring, with the new middleware known as the Generation 3 Middleware ("Gen3" Middleware; \citeds{DMTN-056}).
+Recently, the middleware layer is in the course of a major redesign and refactoring, with the new middleware known as the Generation 3 Middleware ("Gen3" Middleware; \citeds{DMTN-056}).
 This \poc~added new features in the Generation 3 Data Butler; see Sect \ref{sec:butler}.
 
 
@@ -110,10 +110,10 @@ One prominent idea was to use HTCondor utilities to transfer files with S3, rath
 
 With respect to the database, we discussed the possibility of having local registries within individual jobs.
 Each job has a fast local SQLite registry.
-After each job finishes, the indiviual registry is then collated into the central database.
+After each job finishes, the individual registry is then collated into the central database.
 Besides simplifying failure recovery, another benefit is to avoid potential bottlenecks related to large scale parallel SQL transactions by bundling multiple transactions together and handling database connections in a centralized manner.
 This envisions a fully shared-nothing architecture, but implementing this requires more thorough design work in conjunction with the Generation 3 Middleware development.
-Also, the current implementations of the Butler registry depend on conflict resolution syntax to resolve insertions of complexs datasets, which may not work in this scenario.
+Also, the current implementations of the Butler registry depend on conflict resolution syntax to resolve insertions of complex datasets, that may not work in this scenario.
 
 
 \section{Approaches and strategies}
@@ -125,11 +125,11 @@ The following approaches were taken.
 
 \citeds{DMTN-114} proposed development phases that broadly outlined how progress can be made and when performance would be monitored. The outlined plan was to move the execution to AWS without any backend modifications first and then gradually switch out each component to AWS.
 
-Before this \poc, the DRP execution relied a shared POSIX-compliant filesystem.
-In the first phase such filesystem was replaced by Amazon EFS.
-The data repository, including a POSIX datastore and a SQLite registry, was entirely located on EFS that was mouted to each of the EC2 compute instances.
+Before this \poc, the DRP execution relied on a shared POSIX-compliant filesystem.
+In the first phase Amazon EFS is used as this filesystem.
+The data repository, including a POSIX datastore and a SQLite registry, was entirely located on EFS, which was mouted to each of the EC2 compute instances.
 
-Later, the S3 datastore replaced the need of EFS, and the PostgreSQL RDS replaced the SQLite registry.
+Subsequently, support for the S3 datastore eliminated the need of EFS, and the PostgreSQL RDS replaced the SQLite registry.
 Also, a Personal HTCondor Pool on an single EC2 instance was used before we tested the capability to launch new EC2 instances as the HTCondor workers and execute jobs.
 This approach allowed us to debug and adapt more smoothly and always had a fallback option in integrating and testing new features and components.
 
@@ -142,16 +142,17 @@ For larger scale tests we used the \href{https://jira.lsstcorp.org/browse/DM-113
 
 \subsection{Use Generation 3 Middleware}
 
-One of the mandates in the \poc~was to use the Generation 3 Middleware (\citeds{DMTN-056}), which has been designed to ease the DRP execution and automation compared to the previous Generation 2 Middleware. Generation 3 Middleware design is more pliable to alternative backends, compared to Generation 2 Middleware.
-As it was still relatively early in its implementation, findings in the \poc~were feedbacked to the Generation 3 Middleware team and influenced its development.
+One of the mandates in the \poc~was to use the Generation 3 Middleware (\citeds{DMTN-056}), which has been designed to ease the DRP execution and automation compared to the previous Generation 2 Middleware. Generation 3 Middleware design is more readily extensible to alternative backends, compared to Generation 2 Middleware.
+As it was still relatively early in its implementation, findings in the \poc~were fed back to the Generation 3 Middleware team and influenced its development.
 
-On the other hand, as during the \poc~the Generation 3 Middleware has been under active development, backwards incompatible changes occurred often, and the APIs were unstable.
+On the other hand, as during the \poc~the Generation 3 Middleware was under active development, backwards incompatible changes occurred often, and the APIs were unstable.
 Furthermore, there were no integration tests when the \poc~started and the test coverage has been suboptimal.
 Hence, changes often broke functionality.
 Lack of a good integration test is still a major concern going forward.
 New integration tests may not be accepted due to the much longer time required to run the test suite.
 
-Keeping this in mind, We decided not to always follow the bleeding edge version and updated only when unnecessary, such as important bug fixes. The stack versions should not have strong impacts in the \poc~conclusions in terms of the cloud feasibility.
+Keeping this in mind, we decided not to always follow the bleeding edge version and updated only when unnecessary, such as for important bug fixes.
+We believe that the specific stack versions used should not have strong impacts on the \poc~conclusions regarding the feasibility of cloud deployment of DRP.
 
 \subsection{Focus on end-to-end execution}
 
@@ -362,8 +363,9 @@ It scaled roughly linearly in cost and total compute resources.
 In wallclock time, it did not take longer because more EC2 instances could be deployed.
 For LSST DRP, there will be annually 1911 TB of raw science data with lossless compression.
 Based on an input size of 122 GB and a cost of \$95 from our DRP test workflow, if the scaling relationship holds, the LSST processing would cost $\sim$\$1.5 million for the first year of DRP.
-Note that there are many ways to improve the efficiency and the \poc~project did not put effort into cost optimization.
-Also AWS has pre-purchase plans and other discounts that may help reducing the cost.
+Note that this is a very crude estimate from a simple scaling.
+Also, there are many ways to improve the efficiency and the \poc~project did not put effort into cost optimization.
+AWS has pre-purchase plans and other discounts that may help further reducing the cost.
 
 
 \section{Potential Improvements and more lessons learned} \label{future}
