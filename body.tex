@@ -52,12 +52,18 @@ On demand instances cost more but they can not be deallocated by AWS. Spot insta
 \href{https://aws.amazon.com/s3/}{Simple Storage Service (S3)} is an object storage that allows massive amounts of unstructured data where each object typically includes data and related metadata and is identified by a globally unique identifier, to be stored and accessed from EC2 instances or elsewhere in a durable and highly scalable way.
 Buckets, organizational units in which related objects are generally stored, enable easier access and privilege administration. Access, read, write, delete and other atomic units of action on the objects themselves can be allowed or forbidden at the account, bucket or individual object level. Logging is available for all actions on the Bucket level and/or at the individual object granularity. It is also possible to define and issue complex conditions on Bucket or object actions which can execute arbitrary actions or workflows, but S3 itself is not POSIX compliant.
 \subsection{PostgreSQL}
-PostgreSQL is one of the most popular open source relational database systems available. The choice to go with PostgreSQL was based on the fact that it's a very popular and well supported open source software that suffers from no additional licensing fees usually associated with proprietary software. \href{https://aws.amazon.com/rds/}{Relational Database Service (RDS)} is the AWS cloud service that launches and configures databases with ease.
+PostgreSQL is one of the most popular open source relational database systems available.
+\href{https://aws.amazon.com/rds/}{Relational Database Service (RDS)} is the AWS cloud service that launches and configures databases with ease.
 The RDS databases can be backed up into snapshots as well as exported to downloadable files on S3.
+Besides no additional licensing fees usually associated with proprietary software, PostgreSQL's off-the-shelf support for spatial primitives needed for astronomy was the primary reason of choosing it.
+While LSST (via Qserv) has demonstrated similar primitives on MariaDB, the ease of deploying PostgreSQL in RDS, the common use of PostgreSQL as a Virtual Observatory (VO) Table Access Protocol (TAP) backend, and the desire to demonstrate portability of the Butler code were desirable factors.
 \subsection{HTCondor}
 \href{https://research.cs.wisc.edu/htcondor}{HTCondor}\citep{condor-practice} provides distributed job parallelization and is a powerful batch system for high throughput computing (HTC).
 A HTCondor pool is a collection of compute resources, and HTCondor matches job requests with available resources following their job requirements.
-The \texttt{condor\_annex} module allows HTCondor deployment on cloud resources. Instances allocated by \texttt{condor\_annex} are added to a shared resource pool on which jobs can be scheduled. Unused compute resources are automatically deallocated after some set time spent idling.
+HTCondor Annex allows HTCondor deployment on cloud resources via acquisition of cloud compute resources external to an existing HTCondor pool.
+A HTCondor pool can have multiple annexes, and each annex manages its own lifecycle.
+Instances allocated by \texttt{condor\_annex} are added to a shared resource pool on which jobs can be scheduled.
+Unused compute resources are automatically deallocated after some set time spent idling.
 HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/experiment-that-discovered-the-higgs-boson-uses-aws-to-probe-nature}{the HEP Cloud project}, scaling up to 60,000 cores in a multi-region deployment on AWS, and by \href{https://www.linkedin.com/pulse/using-50k-gpus-across-multiple-clouds-icecube-science-igor-sfiligoi}{the IceCube experiment}, where they scaled up to 51,000 GPUs across multiple regions and multiple cloud providers (AWS, Azure, and Google Cloud).
 \subsection{Pegasus}
 \href{https://pegasus.isi.edu/}{Pegasus}\citep{deelman-fgcs-2015} is a workflow management system built on top of HTCondor.
@@ -90,13 +96,15 @@ AMIs containing the LSST Software Stack, Pegasus, and a configured HTCondor inst
 The user logs in to this master to control the workflow execution.
 
 The workflow of the LSST DRP in the Generation 3 Middleware is represented as a Directed Acyclic Graph (DAG) known as a Quantum Graph.
-In the Generation 3 Middleware, input and output datasets are defined in the Pipeline Tasks and each unit is known as a Quantum.
+In the Generation 3 Middleware, a Pipeline Task represents a configured sequence of a data processing operation, and defines the inputs and outputs used in conjunction with the Data Butler.
+Each executable unit, known as a Quantum, represents a single execution of a particular Pipeline Task with particular inputs producing particular outputs.
 The Quantum Graph is aware of the Quantum dependency and determines the execution workflow.
 For simplicity we map each Quantum to a standalone job, although this may not be optimal for performance (grouping multiple Quanta into a single job can reduce or amortize overhead).
 Pegasus is used to submit the workflow to HTCondor as well as monitor the workflow execution.
-Each LSST Pipeline Task Quantum is resource-independent. Pegasus adds other necessary jobs, such as data transfer, to the executable workflow. HTCondor DAGMan is the workflow execution engine behind Pegasus and controls the processes.
+Pegasus adds other necessary jobs, such as data transfer, to the executable workflow. HTCondor DAGMan is the workflow execution engine behind Pegasus and controls the processes.
 
-Compute resources are procured from the master node via \texttt{condor\_annex} by targeting the worker AMI. Annex is a resource acquisition and external compute resource separation management unit. Each resource pool can have multiple annexes. Each annex manages its own lifecycle. It is possible to request on-demand or spot instance fleets.
+Compute resources are procured from the master node via \texttt{condor\_annex} by targeting the worker AMI.
+\texttt{condor\_annex} can request on-demand or spot instance fleets.
 
 LSST Pipeline jobs are executed on the worker instances; they use the Data Butler for data access.
 New Data Butler backends were implemented during the PoC, see Sect \ref{sec:butler}.
@@ -105,9 +113,8 @@ The Butler datastore is located in an S3 Bucket and follows the same hierarchica
 Since the directory structure is preserved by the S3 datastore the entire data repository is trivially transferable between the cloud and a local filesystem.
 
 The Butler registry is an RDS PostgreSQL database that keeps track of all LSST science files.
-Files that are not managed by Data Butler are managed by the Condor File IO via Pegasus. These include the Data Butler configuration file, pipeline definition (Quantum) files, and the log files. The master instance serves as the staging site for these files. Various network protocols transfer the files between the master and the workers; instances do not share a filesystem.
-
-\subsection{Alternative architecture designs}
+Files that are not managed by Data Butler are managed by the Condor File IO via Pegasus. These include the Data Butler configuration file, pipeline definition (Quantum) files, and the log files. The master instance serves as the staging site for these files.
+Pegasus and HTCondor manage data transfer of these files between the master and the workers; instances do not share a filesystem.
 
 
 \section{Approaches and strategies} \label{sec:approach}
@@ -130,9 +137,9 @@ This approach allowed us to debug and adapt more smoothly, ensuring we always ha
 \subsection{Test minimally before scaling up}
 
 Small tasks are tested before workflows of jobs, and small workflows are tested before large workflows.
-The canonical \href{https://github.com/lsst/ci\_hsc}{ci\_hsc} dataset and the accompanying CI workflow provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
+The canonical \href{https://github.com/lsst/ci\_hsc}{ci\_hsc} dataset ($\sim$8GB) and the accompanying CI workflow (156 jobs) provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
 This test workflow is an important step in integrating new changes.
-For larger scale tests we used the \href{https://jira.lsstcorp.org/browse/DM-11345}{HSC-RC2 dataset}.
+For larger scale tests we used the \href{https://jira.lsstcorp.org/browse/DM-11345}{HSC-RC2 dataset} ($\sim$1.5TB and 27075 jobs).
 
 \subsection{Use Generation 3 Middleware}
 
@@ -143,7 +150,6 @@ On the other hand, as during the \poc~the Generation 3 Middleware was under acti
 Furthermore, there were no integration tests when the \poc~started, and unit test coverage was incomplete.
 Hence, changes often broke functionality.
 Lack of a good integration test for the code written for this \poc is still a major concern going forward.
-New integration tests may not be accepted due to the much longer time required to run the test suite.
 
 Keeping this in mind, we decided not to always follow the bleeding edge version of the middleware, updating only when necessary, such as for important bug fixes.
 We believe that the specific stack versions used should not have strong impacts on the \poc~conclusions regarding the feasibility of cloud deployment of DRP.
