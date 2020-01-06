@@ -29,10 +29,15 @@ In April 2019, LSST Data Management (DM) began a proof of concept (PoC) project 
 The execution plan is in \citeds{DMTN-114}.
 For this project AWS granted us credits to use their platform.
 The team met biweekly to discuss progress and plans.
-In this document we report on the work carried out, results obtained, and lessons learned with respect to the technologies used, the LSST code base, and the overall PoC process.
-Results of scaling and pricing tests are in Sect \ref{results}.
 
-\section{Technology stack}
+In this document we report on the work carried out, results obtained, and lessons learned with respect to the technologies used, the LSST code base, and the overall PoC process.
+We first list the relevant technologies in Sect \ref{sec:tech}, and Sect \ref{sec:arch} describes how they were used to execute the DRP workflow.
+In Sect \ref{sec:approach} we discuss certain principles that were helpful in ensuring progress and success.
+The modifications to the Data Butler that were necessary to execute in the cloud environment are detailed in Sect \ref{sec:butler}.
+Results of scaling tests and cost estimates are given in Sect \ref{sec:results}.
+Finally, potential improvements or extensions and lessons learned are listed in Sect \ref{sec:future}.
+
+\section{Technology stack} \label{sec:tech}
 
 \subsection{Amazon Elastic Compute Cloud (EC2)}
 
@@ -68,7 +73,7 @@ Recently, the middleware layer has been undergoing a major redesign and refactor
 This \poc~added new features in the Generation 3 Data Butler; see Sect \ref{sec:butler}.
 
 
-\section{Architecture design}
+\section{Architecture design} \label{sec:arch}
 
 
 The system at the end of the PoC is shown in Figure~\ref{fig:arch}.
@@ -104,19 +109,8 @@ Files that are not managed by Data Butler are managed by the Condor File IO via 
 
 \subsection{Alternative architecture designs}
 
-We discussed different architecture designs but did not pursue all of them due to time constraints.
 
-One prominent idea was to use HTCondor utilities to transfer files from and to S3, rather than relying on the Data Butler to communicate directly with S3. In this design HTCondor controls all file transfers, and all datasets are declared in the execution workflow. This design is enabled by a data transfer plug-in that was recently added to HTCondor. In each job there would be a local POSIX data repository for all data access. Utilities would be needed for determining, based on the Quantum Graph, the URLs of datasets that need to be transferred; for setting up the local Butler registry; and for ingesting the HTCondor-transferred S3 datasets into the main Butler registry. This additional work was not able to be scheduled as part of the PoC. A benefit of this approach is the potential for optimizing bulk data transfers.
-
-With respect to the database, we discussed the possibility of having local registries within individual jobs.
-Each job has a fast local SQLite registry.
-After each job finishes, the individual registry is then collated into the central database.
-Besides simplifying failure recovery, another benefit is to avoid potential bottlenecks related to large scale parallel SQL transactions by bundling multiple transactions together and handling database connections in a centralized manner.
-This envisions a fully shared-nothing architecture, but implementing this requires more thorough design work in conjunction with the Generation 3 Middleware development.
-Also, the current implementations of the Butler registry depend on conflict resolution syntax to resolve insertions of complex datasets, that may not work in this scenario.
-
-
-\section{Approaches and strategies}
+\section{Approaches and strategies} \label{sec:approach}
 
 \poc's goal is to demonstrate that running Data Release Production (DRP) on AWS is possible.
 The following approaches were taken.
@@ -157,7 +151,7 @@ We believe that the specific stack versions used should not have strong impacts 
 \subsection{Focus on end-to-end execution}
 
 Potential optimizations and further investigations were identified throughout the PoC project but were not carried out.
-Some ideas are described in Sec \ref{future}.
+Some ideas are described in Sec \ref{sec:future}.
 
 
 \section{Building AWS support into the Data Butler}
@@ -227,7 +221,7 @@ Execution time: 0.021 ms
 Recently \jira{DM-17023} reworked and completely re-implemented the SQL schema and data model for the registries. We have not yet tested the performance of the new registry schema in PostgreSQL. The issues described here well optimize the set of specific queries, at the cost of a performance hit for all inserts into visits, patches..., but an important take away lesson here should be that because all of the SQL is generated completely dynamically guaranteeing execution plan stability and performance is dificult. Not all DBMSs optimize SQL statements equally well. Tying the CI and testing to only one database doesn't suficiently test the code performance and because the SQL is generated completely dynamically to fix potential poor performance requires schema modifications to be made external to the Middleware code. Because some of the performance loss can be debilitating, it is possible that certain DBMSs are, in this implementation, tied into implementing unoptimal solutions just to be able to run DRP.
 
 \section{Execution results of the tract-sized DRP workflow}
-\label{results}
+\label{sec:results}
 
 After successful execution with the \texttt{ci\_hsc} dataset, we scaled up the run to one full tract of the HSC-RC2 dataset, as defined in \jira{DM-11345}.
 The full HSC-RC2 input repository contains 108108 objects and totals $\sim$1.5TB, including 432 raw visits in 3 tracts and $\sim$0.7TB of calibration data.
@@ -330,7 +324,7 @@ In our accounting here this also includes charges from instances used in work in
 Table \ref{tab:billBreakdown} and Figure \ref{fig:billBreakdown} provide an overview of the cost breakdown for each run.
 This includes all charges incurred on the billing days during which the runs were done, so this can be seen as an upper bound.
 The price dropped significantly from the first run to the rest, mostly due to operator knowledge from the workflow execution to decrease instance idle time.
-We have not optimized the overall usage; more discussions are in Sect \ref{future}.
+We have not optimized the overall usage; more discussions are in Sect \ref{sec:future}.
 
 \input{billBreakdown}
 
@@ -368,10 +362,12 @@ Also, there are many ways to improve the efficiency and the \poc~project did not
 AWS has pre-purchase plans and other discounts that may help further reducing the cost.
 
 
-\section{Potential Improvements and more lessons learned} \label{future}
+\section{Potential Improvements and more lessons learned} \label{sec:future}
 
 In this session we describe issues we have encountered during the execution and ideas on how to improve the code or the instance and workflow management.
 We discuss both intermittent failures that we understand and expect to occasionally encounter even in production, as well as higher level design or tooling improvements.
+
+\subsection{Intermittent failures}
 
 Failures can occur due to non-pipeline issues such as underlying infrastructure.
 The fault rate may be small but as we scale up we start to encounter some.
@@ -420,7 +416,22 @@ These were resolved by increasing \texttt{max\_locks\_per\_transaction}, the cac
 \end{enumerate}
 
 
-More generally, improvements in system design and tooling rise to prominence.
+\subsection{Alternative architecture designs}
+
+%In this \poc, we discussed different architecture designs but did not pursue all of them due to time constraints.
+
+One prominent idea was to use HTCondor utilities to transfer files from and to S3, rather than relying on the Data Butler to communicate directly with S3. In this design HTCondor controls all file transfers, and all datasets are declared in the execution workflow. This design is enabled by a data transfer plug-in that was recently added to HTCondor. In each job there would be a local POSIX data repository for all data access. Utilities would be needed for determining, based on the Quantum Graph, the URLs of datasets that need to be transferred; for setting up the local Butler registry; and for ingesting the HTCondor-transferred S3 datasets into the main Butler registry. This additional work was not able to be scheduled as part of the PoC. A benefit of this approach is the potential for optimizing bulk data transfers.
+
+With respect to the database, we discussed the possibility of having local registries within individual jobs.
+Each job has a fast local SQLite registry.
+After each job finishes, the individual registry is then collated into the central database.
+This is a subset of the previous design alternative, with only the registry being localized and not the datasets.
+Besides simplifying failure recovery, another benefit is to avoid potential bottlenecks related to large scale parallel SQL transactions by bundling multiple transactions together and handling database connections in a centralized manner.
+This envisions a fully shared-nothing architecture, but implementing this requires more thorough design work in conjunction with the Generation 3 Middleware development.
+
+\subsection{Tooling improvements}
+
+More generally, improvements in and tooling rise to prominence.
 We discuss some ideas below.
 
 \begin{enumerate}
