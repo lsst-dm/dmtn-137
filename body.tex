@@ -25,11 +25,11 @@
 
 \section{Background}
 
-In April 2019, LSST DM began a proof of concept (PoC) project with the Amazon Web Services (AWS) and HTCondor teams to explore whether a cloud deployment of the Data Release Production (DRP) is feasible.
+In April 2019, LSST Data Management (DM) began a proof of concept (PoC) project with the Amazon Web Services (AWS) and HTCondor teams to explore whether a cloud deployment of the LSST Data Release Production (DRP) is feasible.
 The execution plan is in \citeds{DMTN-114}.
 For this project AWS granted us credits to use their platform.
-The team met biweekly to discuss the progress and plans.
-In this document we report on the work carried out and lessons learned.
+The team met biweekly to discuss progress and plans.
+In this document we report on the work carried out, results obtained, and lessons learned with respect to the technologies used, the LSST code base, and the overall PoC process.
 Results of scaling and pricing tests are in Sect \ref{results}.
 
 \section{Technology stack}
@@ -42,21 +42,21 @@ EC2 instances come with multiple instance types for a configuration of memory, C
 An Amazon Machine Image (AMI) bundles the Operating System (OS) with required data and configurations into a convenient image that can be launched on any EC2 instance type.
 \href{https://aws.amazon.com/efs/}{Amazon Elastic File System (Amazon EFS)} provides a POSIX-compliant, scalable, elastic NFS file system designed to provide parallel shared access to thousands of AWS compute instances.
 We have used On-demand and Spot instances in the \poc.
-On demand instances cost more but they can not be deallocated by AWS. Spot instances are significantly cheaper, but at any time AWS, given a 2 mintue warning, can request the compute resources back and deallocate them.
+On demand instances cost more but they can not be deallocated by AWS. Spot instances are significantly cheaper, but at any time AWS, given a 2 minute warning, can request the compute resources back and deallocate them.
 \subsection{Amazon Simple Storage Service (S3)}
-\href{https://aws.amazon.com/s3/}{Simple Storage Service (S3)} is an object storage that allows massive amounts of unstructured data where each object typically includes the data, related metadata and is identified by a globally unique identifier, to be stored and accessed from EC2 instances or elsewhere in a durable and highly scalable way.
-Buckets, organizational units in which related objects are generally stored, enable easier access and priviledges administration. Access, read, write, delete and other atomical units of action on the objects themselves can be allowed or forbidden at the account, bucket or individual object level. Logging is available for all actions on the Bucket level and/or at the individual object granularity. It is also possible to define and issue complex alert conditions on Bucket or object actions which can execute arbitrary actions or workflows, but S3 itself is not POSIX compliant.
+\href{https://aws.amazon.com/s3/}{Simple Storage Service (S3)} is an object storage that allows massive amounts of unstructured data where each object typically includes data and related metadata and is identified by a globally unique identifier, to be stored and accessed from EC2 instances or elsewhere in a durable and highly scalable way.
+Buckets, organizational units in which related objects are generally stored, enable easier access and privilege administration. Access, read, write, delete and other atomic units of action on the objects themselves can be allowed or forbidden at the account, bucket or individual object level. Logging is available for all actions on the Bucket level and/or at the individual object granularity. It is also possible to define and issue complex conditions on Bucket or object actions which can execute arbitrary actions or workflows, but S3 itself is not POSIX compliant.
 \subsection{PostgreSQL}
 PostgreSQL is one of the most popular open source relational database systems available. The choice to go with PostgreSQL was based on the fact that it's a very popular and well supported open source software that suffers from no additional licensing fees usually associated with proprietary software. \href{https://aws.amazon.com/rds/}{Relational Database Service (RDS)} is the AWS cloud service that launches and configures databases with ease.
 The RDS databases can be backed up into snapshots as well as exported to downloadable files on S3.
 \subsection{HTCondor}
 \href{https://research.cs.wisc.edu/htcondor}{HTCondor}\citep{condor-practice} provides distributed job parallelization and is a powerful batch system for high throughput computing (HTC).
 A HTCondor pool is a collection of compute resources, and HTCondor matches job requests with available resources following their job requirements.
-The \texttt{condor\_annex} module allows HTCondor deployment on cloud resources. Instances allocated by \texttt{condor\_annex} are added to a shared resource pool on which jobs added in the job queue are scheduled on. Unused compute resources are automatically deallocated after some set time spent idling.
-HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/experiment-that-discovered-the-higgs-boson-uses-aws-to-probe-nature}{HEP Cloud project}, scaling up to 60,000 cores in multi-region deployement on AWS, and by \href{https://www.linkedin.com/pulse/using-50k-gpus-across-multiple-clouds-icecube-science-igor-sfiligoi}{IceCube experiment}, where they scaled up to 51,000 GPUs across multiple regions and multiple cloud providers (AWS, Azure, and Google Cloud).
+The \texttt{condor\_annex} module allows HTCondor deployment on cloud resources. Instances allocated by \texttt{condor\_annex} are added to a shared resource pool on which jobs can be scheduled. Unused compute resources are automatically deallocated after some set time spent idling.
+HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/experiment-that-discovered-the-higgs-boson-uses-aws-to-probe-nature}{the HEP Cloud project}, scaling up to 60,000 cores in a multi-region deployment on AWS, and by \href{https://www.linkedin.com/pulse/using-50k-gpus-across-multiple-clouds-icecube-science-igor-sfiligoi}{the IceCube experiment}, where they scaled up to 51,000 GPUs across multiple regions and multiple cloud providers (AWS, Azure, and Google Cloud).
 \subsection{Pegasus}
 \href{https://pegasus.isi.edu/}{Pegasus}\citep{deelman-fgcs-2015} is a workflow management system built on top of HTCondor.
-Popular in large-scale scientific computing, it provides command line and API interfaces for scientists to write abstract workflow independent of the underlying computing infrastructure.
+Popular in large-scale scientific computing, it provides command line and API interfaces for scientists to write an abstract workflow independent of the underlying computing infrastructure.
 Pegasus workflows are expressed as Directed Acyclic Graphs (DAGs) where jobs are the nodes and job dependencies are represented by the edges.
 Pegasus utilizes HTCondor DAGMan as its execution engine, but also supports various execution environments and data management strategies.
 \subsection{LSST Software Stack}
@@ -64,7 +64,7 @@ The \href{https://pipelines.lsst.io/}{LSST Science Pipelines Software Stack} is 
 Besides image processing and astronomical catalog analysis, it includes a middleware layer for data access, task definition and execution.
 The LSST Data Butler is a framework that abstracts the underlying data persistence and implementations from Science Pipelines algorithms, and a data repository is a set of datasets under control of the Data Butler \citep{2018arXiv181208085J}.
 The Data Butler concepts can be found in \citeds{LDM-463}.
-Recently, the middleware layer is in the course of a major redesign and refactoring, with the new middleware known as the Generation 3 Middleware ("Gen3" Middleware; \citeds{DMTN-056}).
+Recently, the middleware layer has been undergoing a major redesign and refactoring; the new version is known as the Generation 3 Middleware ("Gen3" Middleware; \citeds{DMTN-056}).
 This \poc~added new features in the Generation 3 Data Butler; see Sect \ref{sec:butler}.
 
 
@@ -81,32 +81,32 @@ All components are hosted on the AWS platform.
   \caption{Diagram of the AWS PoC system architecture.}
 \end{figure}
 
-AMIs containing LSST Software Stack, Pegasus, and configured HTCondor are pre-built in two flavors: master and worker. These contain the complete environment required to run DRP workflows and scale them out with HTCondor. The user launches an on-demand EC2 instance using the master AMI to be the submit host and the central manager of HTCondor pool.
+AMIs containing the LSST Software Stack, Pegasus, and a configured HTCondor installation are pre-built in two flavors: master and worker. These contain the complete environment required to run DRP workflows and scale them out with HTCondor. The user launches an on-demand EC2 instance using the master AMI to be the submit host and the central manager of the HTCondor pool.
 The user logs in to this master to control the workflow execution.
 
-The workflow of the LSST DRP in Generation 3 Middleware is represented as a Directed Acyclic Graph (DAG) known as Quantum Graph.
+The workflow of the LSST DRP in the Generation 3 Middleware is represented as a Directed Acyclic Graph (DAG) known as a Quantum Graph.
 In the Generation 3 Middleware, input and output datasets are defined in the Pipeline Tasks and each unit is known as a Quantum.
 The Quantum Graph is aware of the Quantum dependency and determines the execution workflow.
-For simplicity we map each Quantum to a standalone job, despite this may not be optimal for the performance.
+For simplicity we map each Quantum to a standalone job, although this may not be optimal for performance (grouping multiple Quanta into a single job can reduce or amortize overhead).
 Pegasus is used to submit the workflow to HTCondor as well as monitor the workflow execution.
 Each LSST Pipeline Task Quantum is resource-independent. Pegasus adds other necessary jobs, such as data transfer, to the executable workflow. HTCondor DAGMan is the workflow execution engine behind Pegasus and controls the processes.
 
 Compute resources are procured from the master node via \texttt{condor\_annex} by targeting the worker AMI. Annex is a resource acquisition and external compute resource separation management unit. Each resource pool can have multiple annexes. Each annex manages its own lifecycle. It is possible to request on-demand or spot instance fleets.
 
-LSST Pipeline jobs are executed on the worker instances; they use Data Butler for data access.
+LSST Pipeline jobs are executed on the worker instances; they use the Data Butler for data access.
 New Data Butler backends were implemented during the PoC, see Sect \ref{sec:butler}.
 
 The Butler datastore is located in an S3 Bucket and follows the same hierarchical structure that POSIX datastore does. Consumed and produced datasets are read and written directly from S3 as bytes, whenever possible, and only downloaded to temporary files for objects that are not serializable.
 Since the directory structure is preserved by the S3 datastore the entire data repository is trivially transferable between the cloud and a local filesystem.
 
-The Butler registry is a RDS PostgreSQL database that keeps track of all LSST science files.
+The Butler registry is an RDS PostgreSQL database that keeps track of all LSST science files.
 Files that are not managed by Data Butler are managed by the Condor File IO via Pegasus. These include the Data Butler configuration file, pipeline definition (Quantum) files, and the log files. The master instance serves as the staging site for these files. Various network protocols transfer the files between the master and the workers; instances do not share a filesystem.
 
 \subsection{Alternative architecture designs}
 
 We discussed different architecture designs but did not pursue all of them due to time constraints.
 
-One prominent idea was to use HTCondor utilities to transfer files with S3, rather than relying on Data Butler to communicate directly with S3. In this design HTCondor controls all file transfers, and all datasets are declared in the execution workflow. The proposed implementation was partially external to the LSST code base, and such a data transfer plug-in was added to the HTCondor code base recently. In each job there is a POSIX data repository for local data access, and a mechanism is needed to trigger and perform data ingestion at a central S3 data repository. This requires additional Generation 3 Middleware utilities for posix-S3 datastore copying and URL generation. These issues disfavored this architecture. A favorable benefit of this approach is the potential of bulk data transfer management optimizations.
+One prominent idea was to use HTCondor utilities to transfer files from and to S3, rather than relying on the Data Butler to communicate directly with S3. In this design HTCondor controls all file transfers, and all datasets are declared in the execution workflow. This design is enabled by a data transfer plug-in that was recently added to HTCondor. In each job there would be a local POSIX data repository for all data access. Utilities would be needed for determining, based on the Quantum Graph, the URLs of datasets that need to be transferred; for setting up the local Butler registry; and for ingesting the HTCondor-transferred S3 datasets into the main Butler registry. This additional work was not able to be scheduled as part of the PoC. A benefit of this approach is the potential for optimizing bulk data transfers.
 
 With respect to the database, we discussed the possibility of having local registries within individual jobs.
 Each job has a fast local SQLite registry.
@@ -126,12 +126,12 @@ The following approaches were taken.
 \citeds{DMTN-114} proposed development phases that broadly outlined how progress can be made and when performance would be monitored. The outlined plan was to move the execution to AWS without any backend modifications first and then gradually switch out each component to AWS.
 
 Before this \poc, the DRP execution relied on a shared POSIX-compliant filesystem.
-In the first phase Amazon EFS is used as this filesystem.
-The data repository, including a POSIX datastore and a SQLite registry, was entirely located on EFS, which was mouted to each of the EC2 compute instances.
+In the first phase Amazon EFS was used as this filesystem.
+The data repository, including a POSIX datastore and a SQLite registry, was entirely located on EFS, which was mounted on each of the EC2 compute instances.
 
 Subsequently, support for the S3 datastore eliminated the need of EFS, and the PostgreSQL RDS replaced the SQLite registry.
 Also, a Personal HTCondor Pool on an single EC2 instance was used before we tested the capability to launch new EC2 instances as the HTCondor workers and execute jobs.
-This approach allowed us to debug and adapt more smoothly and always had a fallback option in integrating and testing new features and components.
+This approach allowed us to debug and adapt more smoothly, ensuring we always had a fallback option while integrating and testing new features and components.
 
 \subsection{Test minimally before scaling up}
 
@@ -146,12 +146,12 @@ One of the mandates in the \poc~was to use the Generation 3 Middleware (\citeds{
 As it was still relatively early in its implementation, findings in the \poc~were fed back to the Generation 3 Middleware team and influenced its development.
 
 On the other hand, as during the \poc~the Generation 3 Middleware was under active development, backwards incompatible changes occurred often, and the APIs were unstable.
-Furthermore, there were no integration tests when the \poc~started and the test coverage has been suboptimal.
+Furthermore, there were no integration tests when the \poc~started, and unit test coverage was incomplete.
 Hence, changes often broke functionality.
-Lack of a good integration test is still a major concern going forward.
+Lack of a good integration test for the code written for this \poc is still a major concern going forward.
 New integration tests may not be accepted due to the much longer time required to run the test suite.
 
-Keeping this in mind, we decided not to always follow the bleeding edge version and updated only when unnecessary, such as for important bug fixes.
+Keeping this in mind, we decided not to always follow the bleeding edge version of the middleware, updating only when necessary, such as for important bug fixes.
 We believe that the specific stack versions used should not have strong impacts on the \poc~conclusions regarding the feasibility of cloud deployment of DRP.
 
 \subsection{Focus on end-to-end execution}
@@ -189,13 +189,13 @@ Adding the support for AWS into the Butler exercised a significant fraction of t
 
 \subsection{PostgreSQL performance}
 
-The following described performance issue applies strictly to w\_2019\_38 builds and earlier. The QuantumGraph is created by issuing a very large SQL statement that, effectively, creates a cartesian product between many, of the 15-ish or so, tables in the registry. The results of the large query are then parsed in Python and a slew of many different, small, follow-up queries are issued. This diverse workflow presents a difficult challenge in DB optimization. The Generation 3 Middleware team reports that on average it takes 0.5 to 1.5h to create QuantumGraphs for tract-size DRP workflows with Oracle on NCSA infrastructure. In our tests we were unable to create even the simplest QuantumGraphs, even after doubling of the RDS instance resources, and were forced to abort multiple times after 30+h of execution. The lack of performance did not seem related to hardware limitations, since none of the performance metrics availible showed heavy hardware loads nor didthe problem go away even after significant increase of RDS resources.
+Versions of the Generation 3 Middleware prior to and including w\_2019\_38 did not attempt to optimize database performance. In those versions, the QuantumGraph was created by issuing a very large SQL statement that, effectively, created a cartesian product between many of the tables in the registry. The results of this large query were then parsed in Python, and a slew of many different, small, follow-up queries were issued. The Generation 3 Middleware team reported that on average it took 0.5 to 1.5h to create QuantumGraphs for tract-size DRP workflows with Oracle on NCSA infrastructure using these versions. In our tests we were unable to create even the simplest QuantumGraphs, even after doubling the RDS instance resources, and were forced to abort multiple times after 30+h of execution. None of the performance metrics available showed heavy hardware loads.
 
 PostgreSQL, and Oracle, regularly collect statistics on database objects used in queries. These statistics are then used to generate execution plans. These execution plans are then oftentimes cached. This in general results in performance gains. But because Butler generates all SQL dynamically there are no guarantees that a cached, or even pre-prepared execution plan can be executed. In PostgreSQL many of these optimizations then fail.
 
 Specifically what seems to happen with PostgreSQL is that all the views materialize completely on disk. Even when the views are part of larger statements, in which the outter statements have strict constraints on them, the outter constraints do not seem to penetrate to the view statement. It is unclear, from within \poc, whether Oracle DBMS does not suffer from this issue because it has a better SQL statement optimization engine or if this is something more directly tied to how PostgreSQL implements views. 
 
-The performance penalty of the behaviour is debilitating. Bellow is an abreviated query plan for the simplest case of \lstinline[basicstyle=\ttfamily]{select * from visit_detector_patch_join limit 4;} that suffers from the described issue.
+This behavior causes the severe performance problem. Below is an abbreviated query plan for the simplest case of \lstinline[basicstyle=\ttfamily]{select * from visit_detector_patch_join limit 4;} that suffers from the described issue.
 
 \begin{lstlisting}[style=sqlprompt]
 Limit .... (actual time=12732.766..12732.774 rows=4 loops=1)
@@ -213,9 +213,9 @@ Planning time: 0.323 ms
 Execution time: 12759.391 ms
 \end{lstlisting}
 
-Note that the total materialized size of the view on disk is 200MB and that it took 12 seconds to retrieve only 4 results! There is no clear solution to this problem from within the Middleware codebase. 
+Note that the total materialized size of the view on disk is 200MB and that it took 12 seconds to retrieve only 4 results! We were unable to find a way to disable the view materialization in PostgreSQL without changing the SQL queries generated by the middleware.
 
-The sollution is however possible by manually redefining the views as materialized views instead, adding triggers that recreate the views on any insert statement to the underlying tables that make the view, and then adding indexing onto the materialized views. This reduces the time it takes to create a QuantumGraph to the point where it's comparable to that reported by the DM team. The query plan for the same SQL select statement as described above now looks like:
+One solution we found was to manually redefine the views as materialized views instead, adding triggers that recreate the views on any insert statement to the underlying tables that make the view, and then adding indexing onto the materialized views. This reduces the time it takes to create a QuantumGraph to the point where it's comparable to that reported by the DM team. The query plan for the same SQL select statement as described above now looks like:
 
 \begin{lstlisting}[style=sqlprompt]
 Limit .... (actual time=0.009..0.010 rows=4 loops=1)
