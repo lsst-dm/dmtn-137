@@ -47,10 +47,14 @@ EC2 instances come with multiple instance types for a configuration of memory, C
 An Amazon Machine Image (AMI) bundles the Operating System (OS) with required data and configurations into a convenient image that can be launched on any EC2 instance type.
 \href{https://aws.amazon.com/efs/}{Amazon Elastic File System (Amazon EFS)} provides a POSIX-compliant, scalable, elastic NFS file system designed to provide parallel shared access to thousands of AWS compute instances.
 We have used On-demand and Spot instances in the \poc.
-On demand instances cost more but they can not be deallocated by AWS. Spot instances are significantly cheaper, but at any time AWS, given a 2 minute warning, can request the compute resources back and deallocate them.
+On demand instances cost more but they can not be deallocated by AWS.
+Spot instances are significantly cheaper, but at any time AWS, given a 2 minute warning, can request the compute resources back and deallocate them.
 \subsection{Amazon Simple Storage Service (S3)}
 \href{https://aws.amazon.com/s3/}{Simple Storage Service (S3)} is an object storage that allows massive amounts of unstructured data where each object typically includes data and related metadata and is identified by a globally unique identifier, to be stored and accessed from EC2 instances or elsewhere in a durable and highly scalable way.
-Buckets, organizational units in which related objects are generally stored, enable easier access and privilege administration. Access, read, write, delete and other atomic units of action on the objects themselves can be allowed or forbidden at the account, bucket or individual object level. Logging is available for all actions on the Bucket level and/or at the individual object granularity. It is also possible to define and issue complex conditions on Bucket or object actions which can execute arbitrary actions or workflows, but S3 itself is not POSIX compliant.
+Buckets, organizational units in which related objects are generally stored, enable easier access and privilege administration.
+Access, read, write, delete and other atomic units of action on the objects themselves can be allowed or forbidden at the account, bucket or individual object level.
+Logging is available for all actions on the Bucket level and/or at the individual object granularity.
+It is also possible to define and issue complex conditions on Bucket or object actions which can execute arbitrary actions or workflows, but S3 itself is not POSIX compliant.
 \subsection{PostgreSQL}
 PostgreSQL is one of the most popular open source relational database systems available.
 \href{https://aws.amazon.com/rds/}{Relational Database Service (RDS)} is the AWS cloud service that launches and configures databases with ease.
@@ -75,7 +79,7 @@ The \href{https://pipelines.lsst.io/}{LSST Science Pipelines Software Stack} is 
 Besides image processing and astronomical catalog analysis, it includes a middleware layer for data access, task definition and execution.
 The LSST Data Butler is a framework that abstracts the underlying data persistence and implementations from Science Pipelines algorithms, and a data repository is a set of datasets under control of the Data Butler \citep{2018arXiv181208085J}.
 The Data Butler concepts can be found in \citeds{LDM-463}.
-Recently, the middleware layer has been undergoing a major redesign and refactoring; the new version is known as the Generation 3 Middleware ("Gen3" Middleware; \citeds{DMTN-056}).
+"The middleware layer is in the course of a major redesign and refactoring, the new version is known as the Generation 3 Middleware ("Gen3" Middleware; \citeds{DMTN-056}).
 This \poc~added new features in the Generation 3 Data Butler; see Sect \ref{sec:butler}.
 
 
@@ -92,16 +96,19 @@ All components are hosted on the AWS platform.
   \caption{Diagram of the AWS PoC system architecture.}
 \end{figure}
 
-AMIs containing the LSST Software Stack, Pegasus, and a configured HTCondor installation are pre-built in two flavors: master and worker. These contain the complete environment required to run DRP workflows and scale them out with HTCondor. The user launches an on-demand EC2 instance using the master AMI to be the submit host and the central manager of the HTCondor pool.
+AMIs containing the LSST Software Stack, Pegasus, and a configured HTCondor installation are pre-built in two flavors: master and worker.
+These contain the complete environment required to run DRP workflows and scale them out with HTCondor.
+The user launches an on-demand EC2 instance using the master AMI to be the submit host and the central manager of the HTCondor pool.
 The user logs in to this master to control the workflow execution.
 
-The workflow of the LSST DRP in the Generation 3 Middleware is represented as a Directed Acyclic Graph (DAG) known as a Quantum Graph.
+The LSST DRP workflow in the Generation 3 Middleware is represented as a Directed Acyclic Graph (DAG) known as a Quantum Graph.
 In the Generation 3 Middleware, a Pipeline Task represents a configured sequence of a data processing operation, and defines the inputs and outputs used in conjunction with the Data Butler.
 Each executable unit, known as a Quantum, represents a single execution of a particular Pipeline Task with particular inputs producing particular outputs.
 The Quantum Graph is aware of the Quantum dependency and determines the execution workflow.
 For simplicity we map each Quantum to a standalone job, although this may not be optimal for performance (grouping multiple Quanta into a single job can reduce or amortize overhead).
 Pegasus is used to submit the workflow to HTCondor as well as monitor the workflow execution.
-Pegasus adds other necessary jobs, such as data transfer, to the executable workflow. HTCondor DAGMan is the workflow execution engine behind Pegasus and controls the processes.
+Pegasus adds other necessary jobs, such as data transfer, to the executable workflow.
+HTCondor DAGMan is the workflow execution engine behind Pegasus and controls the processes.
 
 Compute resources are procured from the master node via \texttt{condor\_annex} by targeting the worker AMI.
 \texttt{condor\_annex} can request on-demand or spot instance fleets.
@@ -109,11 +116,14 @@ Compute resources are procured from the master node via \texttt{condor\_annex} b
 LSST Pipeline jobs are executed on the worker instances; they use the Data Butler for data access.
 New Data Butler backends were implemented during the PoC, see Sect \ref{sec:butler}.
 
-The Butler datastore is located in an S3 Bucket and follows the same hierarchical structure that POSIX datastore does. Consumed and produced datasets are read and written directly from S3 as bytes, whenever possible, and only downloaded to temporary files for objects that are not serializable.
+The Butler datastore is located in an S3 Bucket and follows the same hierarchical structure that POSIX datastore does.
+Consumed and produced datasets are read and written directly from S3 as bytes, whenever possible, and only downloaded to temporary files for objects whose formatters do not support serialization.
 Since the directory structure is preserved by the S3 datastore the entire data repository is trivially transferable between the cloud and a local filesystem.
 
 The Butler registry is an RDS PostgreSQL database that keeps track of all LSST science files.
-Files that are not managed by Data Butler are managed by the Condor File IO via Pegasus. These include the Data Butler configuration file, pipeline definition (Quantum) files, and the log files. The master instance serves as the staging site for these files.
+Files that are not managed by Data Butler are managed by the Condor File IO via Pegasus.
+These include the Data Butler configuration file, pipeline definition (Quantum) files, and the log files.
+The master instance serves as the staging site for these files.
 Pegasus and HTCondor manage data transfer of these files between the master and the workers; instances do not share a filesystem.
 
 
@@ -124,11 +134,12 @@ The following approaches were taken.
 
 \subsection{Progress in phases}
 
-\citeds{DMTN-114} proposed development phases that broadly outlined how progress can be made and when performance would be monitored. The outlined plan was to move the execution to AWS without any backend modifications first and then gradually switch out each component to AWS.
+\citeds{DMTN-114} proposed development phases that broadly outlined how progress can be made and when performance would be monitored.
+The outlined plan was to move the execution to AWS without any backend modifications first and then gradually switch out each component to AWS.
 
 Before this \poc, the DRP execution relied on a shared POSIX-compliant filesystem.
-In the first phase Amazon EFS was used as this filesystem.
-The data repository, including a POSIX datastore and a SQLite registry, was entirely located on EFS, which was mounted on each of the EC2 compute instances.
+In the first phase Amazon EFS was used as its replacement.
+The data repository, including a POSIX datastore and a SQLite registry, was entirely located on EFS, which was mounted to each of the EC2 compute instances.
 
 Subsequently, support for the S3 datastore eliminated the need of EFS, and the PostgreSQL RDS replaced the SQLite registry.
 Also, a Personal HTCondor Pool on an single EC2 instance was used before we tested the capability to launch new EC2 instances as the HTCondor workers and execute jobs.
@@ -143,10 +154,11 @@ For larger scale tests we used the \href{https://jira.lsstcorp.org/browse/DM-113
 
 \subsection{Use Generation 3 Middleware}
 
-One of the mandates in the \poc~was to use the Generation 3 Middleware (\citeds{DMTN-056}), which has been designed to ease the DRP execution and automation compared to the previous Generation 2 Middleware. Generation 3 Middleware design is more readily extensible to alternative backends, compared to Generation 2 Middleware.
+One of the mandates in the \poc~was to use the Generation 3 Middleware (\citeds{DMTN-056}), which has been designed to ease the DRP execution and automation compared to the previous Generation 2 Middleware.
+Generation 3 Middleware design is more readily extensible to alternative backends, compared to Generation 2 Middleware.
 As it was still relatively early in its implementation, findings in the \poc~were fed back to the Generation 3 Middleware team and influenced its development.
 
-On the other hand, as during the \poc~the Generation 3 Middleware was under active development, backwards incompatible changes occurred often, and the APIs were unstable.
+On the other hand, as during the \poc~the Generation 3 Middleware has been under active development, backwards incompatible changes occurred often, and the APIs were unstable.
 Furthermore, there were no integration tests when the \poc~started, and unit test coverage was incomplete.
 Hence, changes often broke functionality.
 Lack of a good integration test for the code written for this \poc is still a major concern going forward.
@@ -163,68 +175,129 @@ Some ideas are described in Sec \ref{sec:future}.
 \section{Building AWS support into the Data Butler}
 \label{sec:butler}
 
-The Data Butler is the overarching data IO abstraction through which all LSST data access is mediated \citeds{DMTN-056}. Datasets are referred to by their unique IDs, or a set of identifying references, which are then resolved through a Registry that matches the dataset IDs, or references, to the location, file format and the Python object type of the dataset. The system that persists, reads and potentially modifies the datasets is called the Datastore. The Registry is almost always backed by a SQL database and the Datastore is usually backed by a shared filesystem. A major focus of the \poc~was to implement, and investigate issues related to, an S3 backed Datastore and a PostgreSQL backed Registry.
+The Data Butler is the overarching data IO abstraction through which all LSST data access is mediated \citeds{DMTN-056}.
+Datasets are referred to by their unique IDs, or a set of identifying references, which are then resolved through a Registry that matches the dataset IDs, or references, to the location, file format and the Python object type of the dataset.
+The system that persists, reads and potentially modifies the datasets is called the Datastore.
+The Registry is almost always backed by a SQL database and the Datastore is usually backed by a shared filesystem.
+A major focus of the \poc~was to implement, and investigate issues related to, an S3 backed Datastore and a PostgreSQL backed Registry.
 
-At the time the \poc~project began, Generation 3 Data Butler implemented \texttt{PosixDatastore}, a local or shared filesystem datastore, and a SqliteRegistry. OracleRegistry followed soon after the \poc~work began. Initially the focus was on implementing an S3 backed datastore called S3Datastore. The interface between AWS services and LSST Stack would be based on the official AWS SDK called boto3. In March 2019, Dino Bektesevic visited Tim Jenness for this work and implemented the early versions of a new module in the \texttt{daf\_butler} called \texttt{s3utils}, an \texttt{S3Datastore} class, the \texttt{PosixDatastore} equivalent, and a set of appropriate unit tests that demonstrated its functionality and correctness. The unit tests for the datastore utilize the \texttt{moto} library which mocks requests and responses sent to AWS services, so that no additional external infrastructure is required to use it. \texttt{PostgreSqlRegistry} class was implemented partially during the visit and completed shortly after the visit. The initial implementation showcasing the required changes to the code was submitted as a Draft Pull Request \href{https://github.com/lsst/daf_butler/pull/147}{PR-147} in \texttt{daf\_butler}.
+At the time the \poc~project began, Generation 3 Data Butler implemented \texttt{PosixDatastore}, a local or shared filesystem datastore, and a SqliteRegistry.
+OracleRegistry followed soon after the \poc~work began.
+Initially the focus was on implementing an S3 backed datastore called S3Datastore.
+The interface between AWS services and LSST Stack would be based on the official AWS SDK called boto3.
+In March 2019, Dino Bektesevic visited Tim Jenness for this work and implemented the early versions of a new module in the \texttt{daf\_butler} called \texttt{s3utils}, an \texttt{S3Datastore} class, the \texttt{PosixDatastore} equivalent, and a set of appropriate unit tests that demonstrated its functionality and correctness.
+The unit tests for the datastore utilize the \texttt{moto} library which mocks requests and responses sent to AWS services, so that no additional external infrastructure is required to use it.
+\texttt{PostgreSqlRegistry} class was implemented partially during the visit and completed shortly after the visit.
+The initial implementation showcasing the required changes to the code was submitted as a Draft Pull Request \href{https://github.com/lsst/daf_butler/pull/147}{PR-147} in \texttt{daf\_butler}.
 
 The tentative implementation revealed issues with how the Data Butler treated Uniform Resource Identifiers, or URIs, which were, at the time, not being handled correctly, as per standards defined in \href{https://tools.ietf.org/html/rfc3986}{FC-3986}, by the \texttt{Location} class.
 In May 2019 \jira{DM-19916} resolved the issues with the \texttt{ButlerURI} class.
-Major efforts were then invested into refining the newly added code to the level of production quality as well as updating the remaining Generation 3 Butler to use the updated \texttt{ButlerURI} code instead. Every call to OS functionality had to be generalized to take a URI and from it determine the appropriate operation - a call to OS functionality, a AWS operation or something else. This led changes in \texttt{Butler}, \texttt{Config}, \texttt{ButlerConfig} and YAML Loader classes. These changes made the whole of Data Butler more general and pliable to future changes, such as adding support for other cloud providers.
+Major efforts were then invested into refining the newly added code to the level of production quality as well as updating the remaining Generation 3 Butler to use the updated \texttt{ButlerURI} code instead.
+Every call to OS functionality had to be generalized to take a URI and from it determine the appropriate operation - a call to OS functionality, a AWS operation or something else.
+This led changes in \texttt{Butler}, \texttt{Config}, \texttt{ButlerConfig} and YAML Loader classes.
+These changes made the design of Data Butler more general and readily extesible to alternative cloud providers.
 
-Further integration of the S3 backend required a change to Formatter classes to enable data serialization and deserialization to and from bytes. Formatters present interfaces for reading and writing of Python objects to and from files. They are the mechanism underlying how Data Butler is capable of presenting data as science products in the form of Python objects, abstracting away the underlying file types. Modifications were made to \texttt{JsonFormatter}, \texttt{PickeFormatter}, \texttt{YamlFormatter}, \texttt{PexConfigFormatter} and the generic abstract class \texttt{Formatter}.
+Further integration of the S3 backend required a change to Formatter classes to enable data serialization and deserialization to and from bytes.
+Formatters present interfaces for reading and writing of Python objects to and from files.
+They are the mechanism underlying how Data Butler is capable of presenting data as science products in the form of Python objects, abstracting away the underlying file types.
+Modifications were made to \texttt{JsonFormatter}, \texttt{PickeFormatter}, \texttt{YamlFormatter}, \texttt{PexConfigFormatter} and the generic abstract class \texttt{Formatter}.
 This concluded the last of changes required for \texttt{S3Datastore} integration and the code was merged in \href{https://github.com/lsst/daf_butler/pull/179}{PR-179} in \texttt{daf\_butler} (\jira{DM-13361}).
 It became apparent that similarities were shared between \texttt{PosixDatastore} and \texttt{S3Datastore}, and would be shared by other future datastore implentations.
 This prompted \jira{DM-21009} to reduce code duplication in the general datastore code.
 
 \texttt{PostgreSqlRegistry} was added afterwards.
 The initial implementation from March 2019 was based on \texttt{OracleRegistry}.
-Similarities between the two implementations led to a re-implementation of the generic \texttt{SqlRegistry} class in July. Problems were caused, for both Oracle and PostgreSQL, by the table naming conventions and additionally, for PostgreSQL, the table views did not conform to the assumptions made. In July the \texttt{PostgreSqlRegistry} was re-implemented in terms of the more general \texttt{SqlRegistry} and a new SQLAlchemy expressions compiler was written, so that table views could be generated correctly. The policy for additional registry implementations was not to accept associated unit tests, as they are dependent on existing outside architecture, meant that checking whether it worked or not had to be based on manually executing actual data workflows.
-In July and Auguest Dino Bektesevic migrated existing SQLite registries to PostgreSQL and with Hsin-Fang Chiang started testing using the ci\_hsc workflow on AWS. The code was merged into the master branch of \texttt{daf\_butler} in August with \href{https://github.com/lsst/daf_butler/pull/161}{PR-161}. A major issue was then discovered when issuing rollback statements during error recovery stemming from assumptions made when implementing how all of the current SQL registries handle errors during transactions. A stopgap solution, that works for all currently implemented registries, was implemented in \jira{DM-21210} and a more complete solution was implemented later in \jira{DM-21201}.
+Similarities between the two implementations led to a re-implementation of the generic \texttt{SqlRegistry} class in July.
+Problems were caused, for both Oracle and PostgreSQL, by the table naming conventions and additionally, for PostgreSQL, the table views did not conform to the assumptions made.
+In July the \texttt{PostgreSqlRegistry} was re-implemented in terms of the more general \texttt{SqlRegistry} and a new SQLAlchemy expressions compiler was written, so that table views could be generated correctly.
+The policy for additional registry implementations was not to accept associated unit tests, as they are dependent on existing outside architecture, meant that checking whether it worked or not had to be based on manually executing actual data workflows.
+In July and Auguest Dino Bektesevic migrated existing SQLite registries to PostgreSQL and with Hsin-Fang Chiang started testing using the ci\_hsc workflow on AWS.
+The code was merged into the master branch of \texttt{daf\_butler} in August with \href{https://github.com/lsst/daf_butler/pull/161}{PR-161}.
+A major issue was then discovered when issuing rollback statements during error recovery stemming from assumptions made when implementing how all of the current SQL registries handle errors during transactions.
+A stopgap solution, that works for all currently implemented registries, was implemented in \jira{DM-21210} and a more complete solution was implemented later in \jira{DM-21201}.
 
 
-Outstanding issues are presented in terms of security and authorization when dealing with both \texttt{S3Datastore} and \texttt{PostgreSqlRegisty}, with \texttt{PostgreSqlRegisty} being especially sensitive to these issues. Security has received the utmost attention by the LSST AWS PoC group. Significant attention was paid to preserving the flexibility of the authentication in order to be able to incorporate external authenticators such as Oracle Wallets and AWS IAM Roles and Policies. There were several different iterations and improvements made to the authentication implementation (\jira{DM-20992}, \jira{DM-21146}, \jira{DM-21222}) that resulted with the current implementation.
-\jira{DM-20992} re-implemented the \texttt{DbAuth} module that was previously C++ wrapped in the Generation 2 Butler \texttt{daf\_persistence} to pure Python in the Generation 3 Butler, so that the module would support basic file based authentication in absence of external authentication methods. Additional layers of security are achieved through EC2/S3/RDS interfaces by IP white/blacklisting , IAM, Policies etc. These policies can be very granular, affecting individually selected objects, Bucket-wide to placing all instances on the same, externally innaccessible, Virtual Private Network (VPN).
+Outstanding issues are presented in terms of security and authorization when dealing with both \texttt{S3Datastore} and \texttt{PostgreSqlRegisty}, with \texttt{PostgreSqlRegisty} being especially sensitive to these issues.
+Security has received the utmost attention by the LSST AWS PoC group.
+Significant attention was paid to preserving the flexibility of the authentication in order to be able to incorporate external authenticators such as Oracle Wallets and AWS IAM Roles and Policies.
+There were several different iterations and improvements made to the authentication implementation (\jira{DM-20992}, \jira{DM-21146}, \jira{DM-21222}) that resulted with the current implementation.
+\jira{DM-20992} re-implemented the \texttt{DbAuth} module that was previously C++ wrapped in the Generation 2 Butler \texttt{daf\_persistence} to pure Python in the Generation 3 Butler, so that the module would support basic file based authentication in absence of external authentication methods.
+Additional layers of security are achieved through EC2/S3/RDS interfaces by IP white/blacklisting , IAM, Policies etc.
+These policies can be very granular, affecting individually selected objects, Bucket-wide to placing all instances on the same, externally innaccessible, Virtual Private Network (VPN).
 
-Adding the support for AWS into the Butler exercised a significant fraction of the Generation 3 Data Butler. During the process many faults and unpredictable behaviors were discovered and solved. Many problems touched, and continue to exercise, the general Generation 3 Data Butler implementation, as well as assumptions made during their implementation. Recounting the wide list of major improvements to the codebase, hopefully, reveals how productive this exercise has been in helping generalizing and strengthening the whole Generation 3 Data Butler codebase.
+Adding the support for AWS into the Butler exercised a significant fraction of the Generation 3 Data Butler.
+During the process many faults and unpredictable behaviors were discovered and solved.
+Many problems touched, and continue to exercise, the general Generation 3 Data Butler implementation, as well as assumptions made during their implementation.
+Recounting the wide list of major improvements to the codebase, hopefully, reveals how productive this exercise has been in helping generalizing and strengthening the whole Generation 3 Data Butler codebase.
 
 \subsection{PostgreSQL performance}
 
-Versions of the Generation 3 Middleware prior to and including w\_2019\_38 did not attempt to optimize database performance. In those versions, the QuantumGraph was created by issuing a very large SQL statement that, effectively, created a cartesian product between many of the tables in the registry. The results of this large query were then parsed in Python, and a slew of many different, small, follow-up queries were issued. The Generation 3 Middleware team reported that on average it took 0.5 to 1.5h to create QuantumGraphs for tract-size DRP workflows with Oracle on NCSA infrastructure using these versions. In our tests we were unable to create even the simplest QuantumGraphs, even after doubling the RDS instance resources, and were forced to abort multiple times after 30+h of execution. None of the performance metrics available showed heavy hardware loads.
+Versions of the Generation 3 Middleware prior to and including w\_2019\_38 did not attempt to optimize database performance.
+In those versions, the QuantumGraph was created by issuing a very large SQL statement that, effectively, created a cartesian product between many of the tables in the registry.
+The results of this large query were then parsed in Python, and a slew of many different, small, follow-up queries were issued.
+The Generation 3 Middleware team reported that on average it took 0.5 to 1.5h to create QuantumGraphs for tract-size DRP workflows with Oracle on NCSA infrastructure using these versions.
+In our tests we were unable to create even the simplest QuantumGraphs, even after doubling the RDS instance resources, and were forced to abort multiple times after 30+h of execution.
+None of the performance metrics available showed heavy hardware loads.
 
-PostgreSQL, and Oracle, regularly collect statistics on database objects used in queries. These statistics are then used to generate execution plans. These execution plans are then oftentimes cached. This in general results in performance gains. But because Butler generates all SQL dynamically there are no guarantees that a cached, or even pre-prepared execution plan can be executed. In PostgreSQL many of these optimizations then fail.
+PostgreSQL, and Oracle, regularly collect statistics on database objects used in queries.
+These statistics are then used to generate execution plans.
+These execution plans are then oftentimes cached.
+This in general results in performance gains.
+But because Butler generates all SQL dynamically there are no guarantees that a cached, or even pre-prepared execution plan can be executed.
+In PostgreSQL many of these optimizations then fail.
 
-Specifically what seems to happen with PostgreSQL is that all the views materialize completely on disk. Even when the views are part of larger statements, in which the outter statements have strict constraints on them, the outter constraints do not seem to penetrate to the view statement. It is unclear, from within \poc, whether Oracle DBMS does not suffer from this issue because it has a better SQL statement optimization engine or if this is something more directly tied to how PostgreSQL implements views. 
+Specifically what seems to happen with PostgreSQL is that all the views materialize completely on disk.
+Even when the views are part of larger statements, in which the outter statements have strict constraints on them, the outer constraints do not seem to penetrate to the view statement.
 
-This behavior causes the severe performance problem. Below is an abbreviated query plan for the simplest case of \lstinline[basicstyle=\ttfamily]{select * from visit_detector_patch_join limit 4;} that suffers from the described issue.
+
+This behavior causes the severe performance problem.
+Below is an abbreviated query plan for the simplest case of \lstinline[basicstyle=\ttfamily]{select * from visit_detector_patch_join limit 4;} that suffers from the described issue.
 
 \begin{lstlisting}[style=sqlprompt]
-Limit .... (actual time=12732.766..12732.774 rows=4 loops=1)
-->Unique .... (actual time=12732.765..12732.770 rows=4 loops=1)
-  ->Sort .... (actual time=12732.764..12732.767 rows=6 loops=1)
+Limit ....
+(actual time=12732.766..12732.774 rows=4 loops=1)
+->Unique ....
+(actual time=12732.765..12732.770 rows=4 loops=1)
+  ->Sort ....
+(actual time=12732.764..12732.767 rows=6 loops=1)
     Sort Key: ....
     Sort Method: external merge  Disk: 209008kB
-    ->Hash Join .... (actual time=763.846..1524.504 rows=4642107 loops=1)
+    ->Hash Join ....
+(actual time=763.846..1524.504 rows=4642107 loops=1)
       Hash Cond: ....
-      ->Seq Scan on .... (actual time=0.008..16.289 rows=206960 loops=1)
-      ->Hash .... (actual time=763.723..763.724 rows=3259107 loops=1)
+      ->Seq Scan on ....
+(actual time=0.008..16.289 rows=206960 loops=1)
+      ->Hash ....
+(actual time=763.723..763.724 rows=3259107 loops=1)
         Buckets: 65536  Batches: 64  Memory Usage: 3635kB
-        ->  Seq Scan on patch_skypix_join .... (actual time=0.006..240.128 rows=3259107 loops=1)
+        ->  Seq Scan on patch_skypix_join ....
+(actual time=0.006..240.128 rows=3259107 loops=1)
 Planning time: 0.323 ms
 Execution time: 12759.391 ms
 \end{lstlisting}
 
-Note that the total materialized size of the view on disk is 200MB and that it took 12 seconds to retrieve only 4 results! We were unable to find a way to disable the view materialization in PostgreSQL without changing the SQL queries generated by the middleware.
+Note that the total materialized size of the view on disk is 200MB and that it took 12 seconds to retrieve only 4 results!
+We were unable to find a way to disable the view materialization in PostgreSQL without changing the SQL queries generated by the middleware.
 
-One solution we found was to manually redefine the views as materialized views instead, adding triggers that recreate the views on any insert statement to the underlying tables that make the view, and then adding indexing onto the materialized views. This reduces the time it takes to create a QuantumGraph to the point where it's comparable to that reported by the DM team. The query plan for the same SQL select statement as described above now looks like:
+One solution we found was to manually redefine the views as materialized views instead, adding triggers that recreate the views on any insert statement to the underlying tables that make the view, and then adding indexing onto the materialized views.
+This reduces the time it takes to create a QuantumGraph to the point where it's comparable to that reported by the DM team.
+The query plan for the same SQL select statement as described above now looks like:
 
 \begin{lstlisting}[style=sqlprompt]
-Limit .... (actual time=0.009..0.010 rows=4 loops=1)
-->Seq Scan on visit_detector_patch_join .... (actual time=0.008..0.008 rows=4 loops=1)
+Limit ....
+(actual time=0.009..0.010 rows=4 loops=1)
+->Seq Scan on visit_detector_patch_join ....
+(actual time=0.008..0.008 rows=4 loops=1)
 Planning time: 0.053 ms
 Execution time: 0.021 ms
 \end{lstlisting}
 
-Recently \jira{DM-17023} reworked and completely re-implemented the SQL schema and data model for the registries. We have not yet tested the performance of the new registry schema in PostgreSQL. The issues described here well optimize the set of specific queries, at the cost of a performance hit for all inserts into visits, patches..., but an important take away lesson here should be that because all of the SQL is generated completely dynamically guaranteeing execution plan stability and performance is dificult. Not all DBMSs optimize SQL statements equally well. Tying the CI and testing to only one database doesn't suficiently test the code performance and because the SQL is generated completely dynamically to fix potential poor performance requires schema modifications to be made external to the Middleware code. Because some of the performance loss can be debilitating, it is possible that certain DBMSs are, in this implementation, tied into implementing unoptimal solutions just to be able to run DRP.
+Recently \jira{DM-17023} reworked and completely re-implemented the SQL schema and data model for the registries.
+We have not yet tested the performance of the new registry schema in PostgreSQL.
+The issues described here well optimize the set of specific queries, at the cost of a performance hit for all inserts into visits, patches..., but an important take away lesson here should be that because all of the SQL is generated completely dynamically guaranteeing execution plan stability and performance is dificult.
+Not all DBMSs optimize SQL statements equally well.
+Tying the CI and testing to only one database doesn't suficiently test the code performance and because the SQL is generated completely dynamically to fix potential poor performance requires schema modifications to be made external to the Middleware code.
+Because some of the performance loss can be debilitating, it is possible that certain DBMSs are, in this implementation, tied into implementing unoptimal solutions just to be able to run DRP.
 
 \section{Execution results of the tract-sized DRP workflow}
 \label{sec:results}
@@ -381,7 +454,8 @@ Some examples are listed below; most seem transient.
 
 
 \begin{enumerate}
-\item Database connection timeout. Attempting to connect to the RDS instance failed.
+\item Database connection timeout.
+Attempting to connect to the RDS instance failed.
 \begin{lstlisting}[style=basherror]
 sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) could not connect to server: Connection timed out
 \end{lstlisting}
@@ -426,14 +500,22 @@ These were resolved by increasing \texttt{max\_locks\_per\_transaction}, the cac
 
 %In this \poc, we discussed different architecture designs but did not pursue all of them due to time constraints.
 
-One prominent idea was to use HTCondor utilities to transfer files from and to S3, rather than relying on the Data Butler to communicate directly with S3. In this design HTCondor controls all file transfers, and all datasets are declared in the execution workflow. This design is enabled by a data transfer plug-in that was recently added to HTCondor. In each job there would be a local POSIX data repository for all data access. Utilities would be needed for determining, based on the Quantum Graph, the URLs of datasets that need to be transferred; for setting up the local Butler registry; and for ingesting the HTCondor-transferred S3 datasets into the main Butler registry. This additional work was not able to be scheduled as part of the PoC. A benefit of this approach is the potential for optimizing bulk data transfers.
+One prominent idea was to use HTCondor utilities to transfer files from and to S3, rather than relying on the Data Butler to communicate directly with S3.
+In this design HTCondor controls all file transfers, and all datasets are declared in the execution workflow.
+This design is enabled by a data transfer plug-in that was recently added to HTCondor.
+In each job there would be a local POSIX data repository for all data access.
+Utilities would be needed for determining, based on the Quantum Graph, the URLs of datasets that need to be transferred; for setting up the local Butler registry; and for ingesting the HTCondor-transferred S3 datasets into the main Butler registry.
+This additional work was not able to be scheduled as part of the PoC.
+A benefit of this approach is the potential for optimizing bulk data transfers.
 
-With respect to the database, we discussed the possibility of having local registries within individual jobs.
-Each job has a fast local SQLite registry.
-After each job finishes, the individual registry is then collated into the central database.
+With respect to the database, we discussed the possibility of each job having its own fast local SQLite registry.
+
+After each job finishes, registries are then collated into the central database.
 This is a subset of the previous design alternative, with only the registry being localized and not the datasets.
 Besides simplifying failure recovery, another benefit is to avoid potential bottlenecks related to large scale parallel SQL transactions by bundling multiple transactions together and handling database connections in a centralized manner.
 This envisions a fully shared-nothing architecture, but implementing this requires more thorough design work in conjunction with the Generation 3 Middleware development.
+Current dependance on conflict-resolution of registry inserts is potentially a complete blocker to this approach.
+
 
 \subsection{Tooling improvements}
 
@@ -443,9 +525,16 @@ We discuss some ideas below.
 \begin{enumerate}
 \item \textbf{Better job failure recovery strategies}.
 Our jobs write directly to the S3 bucket and the RDS instance via the Data Butler.
-If a job fails in a state that partial outputs are written but the job does not fully finish, recovery is not trivial. Such failed partial writes are handled on the registry side the DBMS but on the datastore side they are handled by wrapping failable transactions in a transaction context manager. The context manager takes a callable that then proceedes with the cleanup. For S3 datastore, at the time of writing, the utility functions preforming the cleanup have not yet been written (in progress). The larger issue with job failures is the lack of DRP workflow failure handling. There is no way yet to reliably pause the DAG execution, overwrite files from a failed job, or other ways to handle such scenarios.
+If a job fails in a state that partial outputs are written but the job does not fully finish, recovery is not trivial.
+Such failed partial writes are handled on the registry side the DBMS but on the datastore side they are handled by wrapping failable transactions in a transaction context manager.
+The context manager takes a callable that then proceedes with the cleanup.
+For S3 datastore, at the time of writing, the utility functions preforming the cleanup have not yet been written (in progress).
+The larger issue with job failures is the lack of DRP workflow failure handling.
+There is no way yet to reliably pause the DAG execution, overwrite files from a failed job, or other ways to handle such scenarios.
 \item \textbf{Container based software stack}.
-We have found it tricky to handle the LSST stack installation, dependencies, and environments to be used together with other software. One possible way to avoid the headaches is to use docker based stack releases. This may also ensure consistency of software on the master and the workers more easily, as well as improve shareability.
+We have found it tricky to handle the LSST stack installation, dependencies, and environments to be used together with other software.
+One possible way to avoid the headaches is to use docker based stack releases.
+This may also ensure consistency of software on the master and the workers more easily, as well as improve shareability.
 \item \textbf{Better cluster management tooling}.
 Our current operational approach requires manually deploy suitable types and sizes of fleets based on our understanding of the overall workload.
 Strategies on the instance choices and timing of requests therefore affect the cost, and manual adjustments are usually needed to reduce cost.
@@ -461,9 +550,18 @@ This includes Butler repo generation, registry generation, Quantum Graph generat
 Many of the components were in the development phase and workarounds were used during the PoC.
 For example a native Generation 3 ingestion was not available so a Gen2-to-Gen3 conversion was needed, and in fact many of the registries were migrated to RDS partially manually by executing bespoke scripts made specifically for such purpose that are not generally portable cross backwards-incompatible changes to the Middleware code.
 As we put together the pieces, the absence of to do so in an automatic fashion became a key burden.
-In retrospect we probably should have invested more time to automate the end-to-end workflow, even with workarounds, but the efforts were plagued by the lack of a canonical ingest tool. Additionally, the DM team has concerns in the long execution time from overly-inclusive CI tests. Adding S3 datastore CI tests to the default CI suite would double the total CI execution time.
+In retrospect we probably should have invested more time to automate the end-to-end workflow, even with workarounds, but the efforts were plagued by the lack of a canonical ingest tool.
+Additionally, the DM team has concerns in the long execution time from overly-inclusive CI tests.
+Adding S3 datastore CI tests to the default CI suite would double the total CI execution time.
 \item \textbf{Credential handling}.
-Security concerns received special attention in the \poc. Natively none of the Middleware code requires the credentials to exist on the instance in plain text, even though they support that option. Authentication can be performed via \href{https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html}{Identity and Access Management Roles} to both S3 and RDS services. IAM Role authentication is more secure than other authentication methods, but require understanding of how AWS security and permissions work and sometimes require tedious setup. For example for RDS IAM access an account admin needs to create the IAM Role then DB admin needs to log in to the DB interactively and create a role with rds\_iam permissions and then also grant usage priviledges on the DB schema, tables etc. While we have tried an IAM setup in the \poc~we often stored credentials onto the master and worker instances in \texttt{\~{}/.lsst/db-auth.yaml}, \texttt{\~{}/.aws/credentials} or in environmental variables which is not the best practice of handling the access. Utilities and tooling that help speed up such setup would be highly desireable. 
+Security concerns received special attention in the \poc.
+Natively none of the Middleware code requires the credentials to exist on the instance in plain text, even though they support that option.
+Authentication can be performed via \href{https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html}{Identity and Access Management Roles} to both S3 and RDS services.
+IAM Role authentication is more secure than other authentication methods, but require understanding of how AWS security and permissions work and sometimes require tedious setup.
+For example for RDS IAM access an account admin needs to create the IAM Role then DB admin needs to log in to the DB interactively and create a role with rds\_iam permissions and then also grant usage priviledges on the DB schema, tables etc.
+While we have tried an IAM setup in the \poc~we often stored credentials onto the master and worker instances in \texttt{\~{}/.lsst/db-auth.yaml}, \texttt{\~{}/.aws/credentials} or in environmental variables which is not the best practice of handling the access.
+Utilities and tooling that help speed up such setup would be highly desireable.
+
 \item \textbf{Robustify and give better error messages}.
 It has been observed that sometimes the error messages could be misleading.
 Also, scaling tests of a more substantial size are critial to find breaking points and bottlenecks.
