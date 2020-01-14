@@ -62,7 +62,7 @@ The RDS databases can be backed up into snapshots as well as exported to downloa
 Besides no additional licensing fees usually associated with proprietary software, PostgreSQL's off-the-shelf support for spatial primitives needed for astronomy was the primary reason of choosing it.
 While LSST (via Qserv) has demonstrated similar primitives on MariaDB, the ease of deploying PostgreSQL in RDS, the common use of PostgreSQL as a Virtual Observatory (VO) Table Access Protocol (TAP) backend, and the desire to demonstrate portability of the Butler code were desirable factors.
 \subsection{HTCondor}
-\href{https://research.cs.wisc.edu/htcondor}{HTCondor}\citep{condor-practice} provides distributed job parallelization and is a powerful batch system for high throughput computing (HTC).
+\href{https://research.cs.wisc.edu/htcondor}{HTCondor} \citep{Thain:2005:Condor} provides distributed job parallelization and is a powerful batch system for high throughput computing (HTC).
 A HTCondor pool is a collection of compute resources, and HTCondor matches job requests with available resources following their job requirements.
 HTCondor Annex allows HTCondor deployment on cloud resources via acquisition of cloud compute resources external to an existing HTCondor pool.
 A HTCondor pool can have multiple annexes, and each annex manages its own lifecycle.
@@ -70,12 +70,12 @@ Instances allocated by \texttt{condor\_annex} are added to a shared resource poo
 Unused compute resources are automatically deallocated after some set time spent idling.
 HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/experiment-that-discovered-the-higgs-boson-uses-aws-to-probe-nature}{the HEP Cloud project}, scaling up to 60,000 cores in a multi-region deployment on AWS, and by \href{https://www.linkedin.com/pulse/using-50k-gpus-across-multiple-clouds-icecube-science-igor-sfiligoi}{the IceCube experiment}, where they scaled up to 51,000 GPUs across multiple regions and multiple cloud providers (AWS, Azure, and Google Cloud).
 \subsection{Pegasus}
-\href{https://pegasus.isi.edu/}{Pegasus}\citep{deelman-fgcs-2015} is a workflow management system built on top of HTCondor.
+\href{https://pegasus.isi.edu/}{Pegasus} \citep{Deelman:2015:Pegasus} is a workflow management system built on top of HTCondor.
 Popular in large-scale scientific computing, it provides command line and API interfaces for scientists to write an abstract workflow independent of the underlying computing infrastructure.
 Pegasus workflows are expressed as Directed Acyclic Graphs (DAGs) where jobs are the nodes and job dependencies are represented by the edges.
 Pegasus utilizes HTCondor DAGMan as its execution engine, but also supports various execution environments and data management strategies.
 \subsection{LSST Software Stack}
-The \href{https://pipelines.lsst.io/}{LSST Science Pipelines Software Stack} is a collection of data processing codes for optical and near-infrared astronomy, and is used for DRP \citep{2018PASJ...70S...5B}.
+The \href{https://pipelines.lsst.io/}{LSST Science Pipelines Software Stack} is a collection of data processing codes for optical and near-infrared astronomy, and is used for DRP \citep{2019ASPC..523..521B}.
 Besides image processing and astronomical catalog analysis, it includes a middleware layer for data access, task definition and execution.
 The LSST Data Butler is a framework that abstracts the underlying data persistence and implementations from Science Pipelines algorithms, and a data repository is a set of datasets under control of the Data Butler \citep{2018arXiv181208085J}.
 The Data Butler concepts can be found in \citeds{LDM-463}.
