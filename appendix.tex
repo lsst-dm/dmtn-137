@@ -1,0 +1,123 @@
+\section{Appendix: implementing new features in Data Butler}
+\label{sec:butler}
+
+A major focus of the \poc~was to implement, and investigate issues related to, an S3 backed Datastore and a PostgreSQL backed Registry.
+This appdendix describes the implementation process.
+
+At the time the \poc~project began, Generation 3 Data Butler implemented \texttt{PosixDatastore}, a local or shared filesystem datastore, and a SqliteRegistry.
+OracleRegistry followed soon after the \poc~work began.
+Initially the focus was on implementing an S3 backed datastore called S3Datastore.
+The interface between AWS services and LSST Stack would be based on the official AWS SDK called boto3.
+In March 2019, Dino Bektesevic visited Tim Jenness for this work and implemented the early versions of a new module in the \texttt{daf\_butler} called \texttt{s3utils}, an \texttt{S3Datastore} class, the \texttt{PosixDatastore} equivalent, and a set of appropriate unit tests that demonstrated its functionality and correctness.
+The unit tests for the datastore utilize the \texttt{moto} library which mocks requests and responses sent to AWS services, so that no additional external infrastructure is required to use it.
+\texttt{PostgreSqlRegistry} class was implemented partially during the visit and completed shortly after the visit.
+The initial implementation showcasing the required changes to the code was submitted as a Draft Pull Request \href{https://github.com/lsst/daf_butler/pull/147}{PR-147} in \texttt{daf\_butler}.
+
+The tentative implementation revealed issues with how the Data Butler treated Uniform Resource Identifiers, or URIs, which were, at the time, not being handled correctly, as per standards defined in \href{https://tools.ietf.org/html/rfc3986}{FC-3986}, by the \texttt{Location} class.
+In May 2019 \jira{DM-19916} resolved the issues with the \texttt{ButlerURI} class.
+Major efforts were then invested into refining the newly added code to the level of production quality as well as updating the remaining Generation 3 Butler to use the updated \texttt{ButlerURI} code instead.
+Every call to OS functionality had to be generalized to take a URI and from it determine the appropriate operation - a call to OS functionality, a AWS operation or something else.
+This led changes in \texttt{Butler}, \texttt{Config}, \texttt{ButlerConfig} and YAML Loader classes.
+These changes made the design of Data Butler more general and readily extesible to alternative cloud providers.
+
+Further integration of the S3 backend required a change to Formatter classes to enable data serialization and deserialization to and from bytes.
+Formatters present interfaces for reading and writing of Python objects to and from files.
+They are the mechanism underlying how Data Butler is capable of presenting data as science products in the form of Python objects, abstracting away the underlying file types.
+Modifications were made to \texttt{JsonFormatter}, \texttt{PickeFormatter}, \texttt{YamlFormatter}, \texttt{PexConfigFormatter} and the generic abstract class \texttt{Formatter}.
+This concluded the last of changes required for \texttt{S3Datastore} integration and the code was merged in \href{https://github.com/lsst/daf_butler/pull/179}{PR-179} in \texttt{daf\_butler} (\jira{DM-13361}).
+It became apparent that similarities were shared between \texttt{PosixDatastore} and \texttt{S3Datastore}, and would be shared by other future datastore implentations.
+This prompted \jira{DM-21009} to reduce code duplication in the general datastore code.
+
+\texttt{PostgreSqlRegistry} was added afterwards.
+The initial implementation from March 2019 was based on \texttt{OracleRegistry}.
+Similarities between the two implementations led to a re-implementation of the generic \texttt{SqlRegistry} class in July.
+Problems were caused, for both Oracle and PostgreSQL, by the table naming conventions and additionally, for PostgreSQL, the table views did not conform to the assumptions made.
+In July the \texttt{PostgreSqlRegistry} was re-implemented in terms of the more general \texttt{SqlRegistry} and a new SQLAlchemy expressions compiler was written, so that table views could be generated correctly.
+The policy for additional registry implementations was not to accept associated unit tests, as they are dependent on existing outside architecture, meant that checking whether it worked or not had to be based on manually executing actual data workflows.
+In July and Auguest Dino Bektesevic migrated existing SQLite registries to PostgreSQL and with Hsin-Fang Chiang started testing using the ci\_hsc workflow on AWS.
+The code was merged into the master branch of \texttt{daf\_butler} in August with \href{https://github.com/lsst/daf_butler/pull/161}{PR-161}.
+A major issue was then discovered when issuing rollback statements during error recovery stemming from assumptions made when implementing how all of the current SQL registries handle errors during transactions.
+A stopgap solution, that works for all currently implemented registries, was implemented in \jira{DM-21210} and a more complete solution was implemented later in \jira{DM-21201}.
+
+
+Outstanding issues are presented in terms of security and authorization when dealing with both \texttt{S3Datastore} and \texttt{PostgreSqlRegisty}, with \texttt{PostgreSqlRegisty} being especially sensitive to these issues.
+Security has received the utmost attention by the LSST AWS PoC group.
+Significant attention was paid to preserving the flexibility of the authentication in order to be able to incorporate external authenticators such as Oracle Wallets and AWS IAM Roles and Policies.
+There were several different iterations and improvements made to the authentication implementation (\jira{DM-20992}, \jira{DM-21146}, \jira{DM-21222}) that resulted with the current implementation.
+\jira{DM-20992} re-implemented the \texttt{DbAuth} module that was previously C++ wrapped in the Generation 2 Butler \texttt{daf\_persistence} to pure Python in the Generation 3 Butler, so that the module would support basic file based authentication in absence of external authentication methods.
+Additional layers of security are achieved through EC2/S3/RDS interfaces by IP white/blacklisting , IAM, Policies etc.
+These policies can be very granular, affecting individually selected objects, Bucket-wide to placing all instances on the same, externally innaccessible, Virtual Private Network (VPN).
+
+Adding the support for AWS into the Butler exercised a significant fraction of the Generation 3 Data Butler.
+During the process many faults and unpredictable behaviors were discovered and solved.
+Many problems touched, and continue to exercise, the general Generation 3 Data Butler implementation, as well as assumptions made during their implementation.
+Recounting the wide list of major improvements to the codebase, hopefully, reveals how productive this exercise has been in helping generalizing and strengthening the whole Generation 3 Data Butler codebase.
+
+\section{Appendix: PostgreSQL performance}
+
+Versions of the Generation 3 Middleware prior to and including w\_2019\_38 did not attempt to optimize database performance.
+In those versions, the QuantumGraph was created by issuing a very large SQL statement that, effectively, created a cartesian product between many of the tables in the registry.
+The results of this large query were then parsed in Python, and a slew of many different, small, follow-up queries were issued.
+The Generation 3 Middleware team reported that on average it took 0.5 to 1.5h to create QuantumGraphs for tract-size DRP workflows with Oracle on NCSA infrastructure using these versions.
+In our tests we were unable to create even the simplest QuantumGraphs, even after doubling the RDS instance resources, and were forced to abort multiple times after 30+h of execution.
+None of the performance metrics available showed heavy hardware loads.
+
+PostgreSQL, and Oracle, regularly collect statistics on database objects used in queries.
+These statistics are then used to generate execution plans.
+These execution plans are then oftentimes cached.
+This in general results in performance gains.
+But because Butler generates all SQL dynamically there are no guarantees that a cached, or even pre-prepared execution plan can be executed.
+In PostgreSQL many of these optimizations then fail.
+
+Specifically what seems to happen with PostgreSQL is that all the views materialize completely on disk.
+Even when the views are part of larger statements, in which the outter statements have strict constraints on them, the outer constraints do not seem to penetrate to the view statement.
+
+
+This behavior causes the severe performance problem.
+Below is an abbreviated query plan for the simplest case of \lstinline[basicstyle=\ttfamily]{select * from visit_detector_patch_join limit 4;} that suffers from the described issue.
+
+\begin{lstlisting}[style=sqlprompt]
+Limit ....
+(actual time=12732.766..12732.774 rows=4 loops=1)
+->Unique ....
+(actual time=12732.765..12732.770 rows=4 loops=1)
+  ->Sort ....
+(actual time=12732.764..12732.767 rows=6 loops=1)
+    Sort Key: ....
+    Sort Method: external merge  Disk: 209008kB
+    ->Hash Join ....
+(actual time=763.846..1524.504 rows=4642107 loops=1)
+      Hash Cond: ....
+      ->Seq Scan on ....
+(actual time=0.008..16.289 rows=206960 loops=1)
+      ->Hash ....
+(actual time=763.723..763.724 rows=3259107 loops=1)
+        Buckets: 65536  Batches: 64  Memory Usage: 3635kB
+        ->  Seq Scan on patch_skypix_join ....
+(actual time=0.006..240.128 rows=3259107 loops=1)
+Planning time: 0.323 ms
+Execution time: 12759.391 ms
+\end{lstlisting}
+
+Note that the total materialized size of the view on disk is 200MB and that it took 12 seconds to retrieve only 4 results!
+We were unable to find a way to disable the view materialization in PostgreSQL without changing the SQL queries generated by the middleware.
+
+One solution we found was to manually redefine the views as materialized views instead, adding triggers that recreate the views on any insert statement to the underlying tables that make the view, and then adding indexing onto the materialized views.
+This reduces the time it takes to create a QuantumGraph to the point where it's comparable to that reported by the DM team.
+The query plan for the same SQL select statement as described above now looks like:
+
+\begin{lstlisting}[style=sqlprompt]
+Limit ....
+(actual time=0.009..0.010 rows=4 loops=1)
+->Seq Scan on visit_detector_patch_join ....
+(actual time=0.008..0.008 rows=4 loops=1)
+Planning time: 0.053 ms
+Execution time: 0.021 ms
+\end{lstlisting}
+
+Recently \jira{DM-17023} reworked and completely re-implemented the SQL schema and data model for the registries.
+We have not yet tested the performance of the new registry schema in PostgreSQL.
+The issues described here well optimize the set of specific queries, at the cost of a performance hit for all inserts into visits, patches..., but an important take away lesson here should be that because all of the SQL is generated completely dynamically guaranteeing execution plan stability and performance is dificult.
+Not all DBMSs optimize SQL statements equally well.
+Tying the CI and testing to only one database doesn't suficiently test the code performance and because the SQL is generated completely dynamically to fix potential poor performance requires schema modifications to be made external to the Middleware code.
+Because some of the performance loss can be debilitating, it is possible that certain DBMSs are, in this implementation, tied into implementing unoptimal solutions just to be able to run DRP.

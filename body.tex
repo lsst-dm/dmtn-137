@@ -33,7 +33,6 @@ The team met biweekly to discuss progress and plans.
 In this document we report on the work carried out, results obtained, and lessons learned with respect to the technologies used, the LSST code base, and the overall PoC process.
 We first list the relevant technologies in Sect \ref{sec:tech}, and Sect \ref{sec:arch} describes how they were used to execute the DRP workflow.
 In Sect \ref{sec:approach} we discuss certain principles that were helpful in ensuring progress and success.
-The modifications to the Data Butler that were necessary to execute in the cloud environment are detailed in Sect \ref{sec:butler}.
 Results of scaling tests and cost estimates are given in Sect \ref{sec:results}.
 Finally, potential improvements or extensions and lessons learned are listed in Sect \ref{sec:future}.
 
@@ -77,10 +76,15 @@ Pegasus utilizes HTCondor DAGMan as its execution engine, but also supports vari
 \subsection{LSST Software Stack}
 The \href{https://pipelines.lsst.io/}{LSST Science Pipelines Software Stack} is a collection of data processing codes for optical and near-infrared astronomy, and is used for DRP \citep{2019ASPC..523..521B}.
 Besides image processing and astronomical catalog analysis, it includes a middleware layer for data access, task definition and execution.
-The LSST Data Butler is a framework that abstracts the underlying data persistence and implementations from Science Pipelines algorithms, and a data repository is a set of datasets under control of the Data Butler \citep{2018arXiv181208085J}.
+The main component of the middleware layer is the Data Butler \citep{2018arXiv181208085J}, a framework that abstracts the underlying data persistence and implementations from Science Pipelines algorithms.
 The Data Butler concepts can be found in \citeds{LDM-463}.
+A Butler data repository is a set of datasets under control of the Data Butler.
+Datasets are referred to via their unique IDs, which are then resolved through a Registry to their locations, file formats and the Python object types.
+The system that persists, reads and potentially modifies the datasets is called the Datastore, and it is usually backed by a shared filesystem.
+The Registry is almost always backed by a SQL database.
 The middleware layer is in the course of a major redesign and refactoring; the new version is known as the Generation 3 Middleware ("Gen3" Middleware; \citeds{DMTN-056}).
-This \poc~added new features in the Generation 3 Data Butler; see Sect \ref{sec:butler}.
+This \poc~added new features in the Generation 3 Data Butler so to allow task execution in the AWS cloud environment.
+The design concepts are described in Sect \ref{sec:arch} and the details of the implementation process are in Appendix \ref{sec:butler}.
 
 
 \section{Architecture design} \label{sec:arch}
@@ -114,7 +118,7 @@ Compute resources are procured from the master node via \texttt{condor\_annex} b
 \texttt{condor\_annex} can request on-demand or spot instance fleets.
 
 LSST Pipeline jobs are executed on the worker instances; they use the Data Butler for data access.
-New Data Butler backends were implemented during the PoC, see Sect \ref{sec:butler}.
+New Data Butler backends were implemented during the PoC, including the S3 Datastore and the PostgreSQL Registry.
 
 The Butler datastore is located in an S3 Bucket and follows the same hierarchical structure that POSIX datastore does.
 Consumed and produced datasets are read and written directly from S3 as bytes, whenever possible, and only downloaded to temporary files for objects whose formatters do not support serialization.
@@ -172,137 +176,10 @@ Potential optimizations and further investigations were identified throughout th
 Some ideas are described in Sec \ref{sec:future}.
 
 
-\section{Building AWS support into the Data Butler}
-\label{sec:butler}
-
-The Data Butler is the overarching data IO abstraction through which all LSST data access is mediated (\citeds{DMTN-056}).
-Datasets are referred to by their unique IDs, or a set of identifying references, which are then resolved through a Registry that matches the dataset IDs, or references, to the location, file format and the Python object type of the dataset.
-The system that persists, reads and potentially modifies the datasets is called the Datastore.
-The Registry is almost always backed by a SQL database and the Datastore is usually backed by a shared filesystem.
-A major focus of the \poc~was to implement, and investigate issues related to, an S3 backed Datastore and a PostgreSQL backed Registry.
-
-At the time the \poc~project began, Generation 3 Data Butler implemented \texttt{PosixDatastore}, a local or shared filesystem datastore, and a SqliteRegistry.
-OracleRegistry followed soon after the \poc~work began.
-Initially the focus was on implementing an S3 backed datastore called S3Datastore.
-The interface between AWS services and LSST Stack would be based on the official AWS SDK called boto3.
-In March 2019, Dino Bektesevic visited Tim Jenness for this work and implemented the early versions of a new module in the \texttt{daf\_butler} called \texttt{s3utils}, an \texttt{S3Datastore} class, the \texttt{PosixDatastore} equivalent, and a set of appropriate unit tests that demonstrated its functionality and correctness.
-The unit tests for the datastore utilize the \texttt{moto} library which mocks requests and responses sent to AWS services, so that no additional external infrastructure is required to use it.
-\texttt{PostgreSqlRegistry} class was implemented partially during the visit and completed shortly after the visit.
-The initial implementation showcasing the required changes to the code was submitted as a Draft Pull Request \href{https://github.com/lsst/daf_butler/pull/147}{PR-147} in \texttt{daf\_butler}.
-
-The tentative implementation revealed issues with how the Data Butler treated Uniform Resource Identifiers, or URIs, which were, at the time, not being handled correctly, as per standards defined in \href{https://tools.ietf.org/html/rfc3986}{FC-3986}, by the \texttt{Location} class.
-In May 2019 \jira{DM-19916} resolved the issues with the \texttt{ButlerURI} class.
-Major efforts were then invested into refining the newly added code to the level of production quality as well as updating the remaining Generation 3 Butler to use the updated \texttt{ButlerURI} code instead.
-Every call to OS functionality had to be generalized to take a URI and from it determine the appropriate operation - a call to OS functionality, a AWS operation or something else.
-This led changes in \texttt{Butler}, \texttt{Config}, \texttt{ButlerConfig} and YAML Loader classes.
-These changes made the design of Data Butler more general and readily extesible to alternative cloud providers.
-
-Further integration of the S3 backend required a change to Formatter classes to enable data serialization and deserialization to and from bytes.
-Formatters present interfaces for reading and writing of Python objects to and from files.
-They are the mechanism underlying how Data Butler is capable of presenting data as science products in the form of Python objects, abstracting away the underlying file types.
-Modifications were made to \texttt{JsonFormatter}, \texttt{PickeFormatter}, \texttt{YamlFormatter}, \texttt{PexConfigFormatter} and the generic abstract class \texttt{Formatter}.
-This concluded the last of changes required for \texttt{S3Datastore} integration and the code was merged in \href{https://github.com/lsst/daf_butler/pull/179}{PR-179} in \texttt{daf\_butler} (\jira{DM-13361}).
-It became apparent that similarities were shared between \texttt{PosixDatastore} and \texttt{S3Datastore}, and would be shared by other future datastore implentations.
-This prompted \jira{DM-21009} to reduce code duplication in the general datastore code.
-
-\texttt{PostgreSqlRegistry} was added afterwards.
-The initial implementation from March 2019 was based on \texttt{OracleRegistry}.
-Similarities between the two implementations led to a re-implementation of the generic \texttt{SqlRegistry} class in July.
-Problems were caused, for both Oracle and PostgreSQL, by the table naming conventions and additionally, for PostgreSQL, the table views did not conform to the assumptions made.
-In July the \texttt{PostgreSqlRegistry} was re-implemented in terms of the more general \texttt{SqlRegistry} and a new SQLAlchemy expressions compiler was written, so that table views could be generated correctly.
-The policy for additional registry implementations was not to accept associated unit tests, as they are dependent on existing outside architecture, meant that checking whether it worked or not had to be based on manually executing actual data workflows.
-In July and Auguest Dino Bektesevic migrated existing SQLite registries to PostgreSQL and with Hsin-Fang Chiang started testing using the ci\_hsc workflow on AWS.
-The code was merged into the master branch of \texttt{daf\_butler} in August with \href{https://github.com/lsst/daf_butler/pull/161}{PR-161}.
-A major issue was then discovered when issuing rollback statements during error recovery stemming from assumptions made when implementing how all of the current SQL registries handle errors during transactions.
-A stopgap solution, that works for all currently implemented registries, was implemented in \jira{DM-21210} and a more complete solution was implemented later in \jira{DM-21201}.
-
-
-Outstanding issues are presented in terms of security and authorization when dealing with both \texttt{S3Datastore} and \texttt{PostgreSqlRegisty}, with \texttt{PostgreSqlRegisty} being especially sensitive to these issues.
-Security has received the utmost attention by the LSST AWS PoC group.
-Significant attention was paid to preserving the flexibility of the authentication in order to be able to incorporate external authenticators such as Oracle Wallets and AWS IAM Roles and Policies.
-There were several different iterations and improvements made to the authentication implementation (\jira{DM-20992}, \jira{DM-21146}, \jira{DM-21222}) that resulted with the current implementation.
-\jira{DM-20992} re-implemented the \texttt{DbAuth} module that was previously C++ wrapped in the Generation 2 Butler \texttt{daf\_persistence} to pure Python in the Generation 3 Butler, so that the module would support basic file based authentication in absence of external authentication methods.
-Additional layers of security are achieved through EC2/S3/RDS interfaces by IP white/blacklisting , IAM, Policies etc.
-These policies can be very granular, affecting individually selected objects, Bucket-wide to placing all instances on the same, externally innaccessible, Virtual Private Network (VPN).
-
-Adding the support for AWS into the Butler exercised a significant fraction of the Generation 3 Data Butler.
-During the process many faults and unpredictable behaviors were discovered and solved.
-Many problems touched, and continue to exercise, the general Generation 3 Data Butler implementation, as well as assumptions made during their implementation.
-Recounting the wide list of major improvements to the codebase, hopefully, reveals how productive this exercise has been in helping generalizing and strengthening the whole Generation 3 Data Butler codebase.
-
-\subsection{PostgreSQL performance}
-
-Versions of the Generation 3 Middleware prior to and including w\_2019\_38 did not attempt to optimize database performance.
-In those versions, the QuantumGraph was created by issuing a very large SQL statement that, effectively, created a cartesian product between many of the tables in the registry.
-The results of this large query were then parsed in Python, and a slew of many different, small, follow-up queries were issued.
-The Generation 3 Middleware team reported that on average it took 0.5 to 1.5h to create QuantumGraphs for tract-size DRP workflows with Oracle on NCSA infrastructure using these versions.
-In our tests we were unable to create even the simplest QuantumGraphs, even after doubling the RDS instance resources, and were forced to abort multiple times after 30+h of execution.
-None of the performance metrics available showed heavy hardware loads.
-
-PostgreSQL, and Oracle, regularly collect statistics on database objects used in queries.
-These statistics are then used to generate execution plans.
-These execution plans are then oftentimes cached.
-This in general results in performance gains.
-But because Butler generates all SQL dynamically there are no guarantees that a cached, or even pre-prepared execution plan can be executed.
-In PostgreSQL many of these optimizations then fail.
-
-Specifically what seems to happen with PostgreSQL is that all the views materialize completely on disk.
-Even when the views are part of larger statements, in which the outter statements have strict constraints on them, the outer constraints do not seem to penetrate to the view statement.
-
-
-This behavior causes the severe performance problem.
-Below is an abbreviated query plan for the simplest case of \lstinline[basicstyle=\ttfamily]{select * from visit_detector_patch_join limit 4;} that suffers from the described issue.
-
-\begin{lstlisting}[style=sqlprompt]
-Limit ....
-(actual time=12732.766..12732.774 rows=4 loops=1)
-->Unique ....
-(actual time=12732.765..12732.770 rows=4 loops=1)
-  ->Sort ....
-(actual time=12732.764..12732.767 rows=6 loops=1)
-    Sort Key: ....
-    Sort Method: external merge  Disk: 209008kB
-    ->Hash Join ....
-(actual time=763.846..1524.504 rows=4642107 loops=1)
-      Hash Cond: ....
-      ->Seq Scan on ....
-(actual time=0.008..16.289 rows=206960 loops=1)
-      ->Hash ....
-(actual time=763.723..763.724 rows=3259107 loops=1)
-        Buckets: 65536  Batches: 64  Memory Usage: 3635kB
-        ->  Seq Scan on patch_skypix_join ....
-(actual time=0.006..240.128 rows=3259107 loops=1)
-Planning time: 0.323 ms
-Execution time: 12759.391 ms
-\end{lstlisting}
-
-Note that the total materialized size of the view on disk is 200MB and that it took 12 seconds to retrieve only 4 results!
-We were unable to find a way to disable the view materialization in PostgreSQL without changing the SQL queries generated by the middleware.
-
-One solution we found was to manually redefine the views as materialized views instead, adding triggers that recreate the views on any insert statement to the underlying tables that make the view, and then adding indexing onto the materialized views.
-This reduces the time it takes to create a QuantumGraph to the point where it's comparable to that reported by the DM team.
-The query plan for the same SQL select statement as described above now looks like:
-
-\begin{lstlisting}[style=sqlprompt]
-Limit ....
-(actual time=0.009..0.010 rows=4 loops=1)
-->Seq Scan on visit_detector_patch_join ....
-(actual time=0.008..0.008 rows=4 loops=1)
-Planning time: 0.053 ms
-Execution time: 0.021 ms
-\end{lstlisting}
-
-Recently \jira{DM-17023} reworked and completely re-implemented the SQL schema and data model for the registries.
-We have not yet tested the performance of the new registry schema in PostgreSQL.
-The issues described here well optimize the set of specific queries, at the cost of a performance hit for all inserts into visits, patches..., but an important take away lesson here should be that because all of the SQL is generated completely dynamically guaranteeing execution plan stability and performance is dificult.
-Not all DBMSs optimize SQL statements equally well.
-Tying the CI and testing to only one database doesn't suficiently test the code performance and because the SQL is generated completely dynamically to fix potential poor performance requires schema modifications to be made external to the Middleware code.
-Because some of the performance loss can be debilitating, it is possible that certain DBMSs are, in this implementation, tied into implementing unoptimal solutions just to be able to run DRP.
-
 \section{Execution results of the tract-sized DRP workflow}
 \label{sec:results}
 
-After successful execution with the \texttt{ci\_hsc} dataset, we scaled up the run to one full tract of the HSC-RC2 dataset, as defined in \jira{DM-11345}.
+After successful execution with the \texttt{ci\_hsc} test dataset, we scaled up the run to one full tract of the HSC-RC2 dataset, as defined in \jira{DM-11345}.
 The full HSC-RC2 input repository contains 108108 objects and totals $\sim$1.5TB, including 432 raw visits in 3 tracts and $\sim$0.7TB of calibration data.
 In this project, we targeted tract=9615 which was executed with the Oracle backend on the NCSA cluster in July 2019 as the S2019 milestone of the Generation 3 Middleware team; see \jira{DM-19915}.
 In terms of raw inputs, tract=9615 contribute around 26$\%$, or $\sim$0.2 TB, of the raw data in the HSC-RC2 dataset.
