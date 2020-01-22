@@ -318,7 +318,7 @@ Also, there are many ways to improve the efficiency and the \poc~project did not
 AWS has pre-purchase plans and other discounts that may help further reducing the cost.
 
 
-\section{Potential Improvements and more lessons learned} \label{sec:future}
+\section{Potential improvements and more lessons learned} \label{sec:future}
 
 In this session we describe issues we have encountered during the execution and ideas on how to improve the code or the instance and workflow management.
 We discuss both intermittent failures that we understand and expect to occasionally encounter even in production, as well as higher level design or tooling improvements.
@@ -428,6 +428,7 @@ Many of the components were in the development phase and workarounds were used d
 For example a native Generation 3 ingestion was not available so a Gen2-to-Gen3 conversion was needed, and in fact many of the registries were migrated to RDS partially manually by executing bespoke scripts made specifically for such purpose that are not generally portable cross backwards-incompatible changes to the Middleware code.
 As we put together the pieces, the absence of to do so in an automatic fashion became a key burden.
 In retrospect we probably should have invested more time to automate the end-to-end workflow, even with workarounds, but the efforts were plagued by the lack of a canonical ingest tool.
+Tools such as \href{https://github.com/localstack/localstack}{LocalStack} can help mocking the AWS cloud.
 Additionally, the DM team has concerns in the long execution time from overly-inclusive CI tests.
 Adding S3 datastore CI tests to the default CI suite would double the total CI execution time.
 \item \textbf{Credential handling}.
@@ -445,6 +446,7 @@ Also, scaling tests of a more substantial size are critial to find breaking poin
 \item \textbf{Other AWS services}.
 Services such as \href{https://aws.amazon.com/batch/}{AWS Batch} and \href{https://aws.amazon.com/glue/}{AWS Glue} could potentially offer powerful tools to our use cases.
 AWS Batch provides EC2 lifecycle management and workflow control, which may reduce the cost of our EC2 usage.
+Recent releases of Pegasus have provided some support of job execution on AWS Batch, and further integration is expected.
 AWS Glue provides extract, transform, and load (ETL) services with respect to our S3 storage usage, which may improve our data warehousing experience and form Data Lake.
 
 \end{enumerate}
