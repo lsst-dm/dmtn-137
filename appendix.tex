@@ -39,18 +39,16 @@ The code was merged into the master branch of \texttt{daf\_butler} in August wit
 A major issue was then discovered when issuing rollback statements during error recovery stemming from assumptions made when implementing how all of the current SQL registries handle errors during transactions.
 A stopgap solution, that works for all currently implemented registries, was implemented in \jira{DM-21210} and a more complete solution was implemented later in \jira{DM-21201}.
 
-
-Outstanding issues are presented in terms of security and authorization when dealing with both \texttt{S3Datastore} and \texttt{PostgreSqlRegisty}, with \texttt{PostgreSqlRegisty} being especially sensitive to these issues.
-Security has received the utmost attention by the LSST AWS PoC group.
+Security and authorization issues were handled for both \texttt{S3Datastore} and \texttt{PostgreSqlRegisty}.
 Significant attention was paid to preserving the flexibility of the authentication in order to be able to incorporate external authenticators such as Oracle Wallets and AWS IAM Roles and Policies.
 There were several different iterations and improvements made to the authentication implementation (\jira{DM-20992}, \jira{DM-21146}, \jira{DM-21222}) that resulted with the current implementation.
 \jira{DM-20992} re-implemented the \texttt{DbAuth} module that was previously C++ wrapped in the Generation 2 Butler \texttt{daf\_persistence} to pure Python in the Generation 3 Butler, so that the module would support basic file based authentication in absence of external authentication methods.
-Additional layers of security are achieved through EC2/S3/RDS interfaces by IP white/blacklisting , IAM, Policies etc.
+Additional layers of security were achieved through EC2/S3/RDS interfaces by IP white/blacklisting , IAM, Policies etc.
 These policies can be very granular, affecting individually selected objects, Bucket-wide to placing all instances on the same, externally innaccessible, Virtual Private Network (VPN).
 
-Adding the support for AWS into the Butler exercised a significant fraction of the Generation 3 Data Butler.
-During the process many faults and unpredictable behaviors were discovered and solved.
-Many problems touched, and continue to exercise, the general Generation 3 Data Butler implementation, as well as assumptions made during their implementation.
+Adding the support for AWS into the Data Butler exercised a significant fraction of the Generation 3 Data Butler codebase.
+During the process many faults and undesired behaviors were discovered and solved.
+Issues encountered challenged the Data Butler implementation, as well as assumptions made during the implementation.
 Recounting the wide list of major improvements to the codebase, hopefully, reveals how productive this exercise has been in helping generalizing and strengthening the whole Generation 3 Data Butler codebase.
 
 \section{Appendix: PostgreSQL performance}
