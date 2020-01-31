@@ -121,7 +121,7 @@ LSST Pipeline jobs are executed on the worker instances; they use the Data Butle
 New Data Butler backends were implemented during the PoC, including the S3 Datastore and the PostgreSQL Registry.
 
 The Butler datastore is located in an S3 Bucket and follows the same hierarchical structure that POSIX datastore does.
-Consumed and produced datasets are read and written directly from S3 as bytes, whenever possible, and only downloaded to temporary files for objects whose formatters do not support serialization.
+Consumed and produced datasets are read and written directly from S3 as bytes, whenever possible, and only downloaded to temporary files for objects whose formatters do not support streaming.
 Since the directory structure is preserved by the S3 datastore the entire data repository is trivially transferable between the cloud and a local filesystem.
 
 The Butler registry is an RDS PostgreSQL database that keeps track of all LSST science files.
@@ -180,7 +180,7 @@ Some ideas are described in Sec \ref{sec:future}.
 \label{sec:results}
 
 After successful execution with the \texttt{ci\_hsc} test dataset, we scaled up the run to one full tract of the HSC-RC2 dataset, as defined in \jira{DM-11345}.
-The full HSC-RC2 input repository contains 108108 objects and totals $\sim$1.5TB, including 432 raw visits in 3 tracts and $\sim$0.7TB of calibration data.
+The full HSC-RC2 input repository contains 108108 S3 objects and totals $\sim$1.5TB, including 432 raw visits in 3 tracts and $\sim$0.7TB of calibration data.
 In this project, we targeted tract=9615 which was executed with the Oracle backend on the NCSA cluster in July 2019 as the S2019 milestone of the Generation 3 Middleware team; see \jira{DM-19915}.
 In terms of raw inputs, tract=9615 contribute around 26$\%$, or $\sim$0.2 TB, of the raw data in the HSC-RC2 dataset.
 We ignored patch 28 and 72 due to a coaddition pipeline issue as reported in \jira{DM-20695}.
@@ -208,7 +208,7 @@ Spot fleets are requested after the Pegasus workflow start.
 Typically \texttt{m4} or \texttt{m5} instances are used for the single frame processing or other small-memory jobs, and \texttt{r4} instances are used for large-memory jobs.
 After the workflow finishes, remaining running Spot instances may be terminated on the AWS console.
 Besides the 27075 pipetask invocations, Pegasus added 2712 data transfer jobs and one directory creation job.
-The total output size from the tract=9615 workflow is $\sim$4.1 TB with 74360 objects.
+The total output size from the tract=9615 workflow is $\sim$4.1 TB with 74360 S3 objects.
 
 \subsection{Notes from the successful runs}
 
@@ -219,7 +219,7 @@ Table \ref{tab:runSummary} lists the runtime as reported by Pegasus tools.
 
 In the first successful run \texttt{20191026T041828+0000}, a fleet of 40 \texttt{m5.xlarge} instances were used for single frame processing and then a fleet 50 \texttt{r4.2xlarge} memory optimized instances for the rest.
 A \texttt{m5.large} on-demand instance served as the master.
-The single frame processing part finished in ~4 hours; coadd and beyond took ~16 hours.
+The single frame processing part finished in~$\sim$4 hours; coadd and beyond took~$\sim$16 hours.
 In this run, the memory requirement of the large-memory jobs was slightly higher than half of a \texttt{r4.2xlarge}, resulting in instance resources not fully used for some time.
 This run spanned two billing days.
 
@@ -451,8 +451,8 @@ AWS Glue provides extract, transform, and load (ETL) services with respect to ou
 
 \section{Summary}
 
-In this \poc~project we have demonstrated the feasibility of LSST DRP data processing on the cloud.
-We implemented AWS backends in the LSST Generation 3 Middleware, allowing processing entirely on the AWS platform using AWS S3 object store, PostgreSQL database, and HTCondor software.
+In this \poc~project we have demonstrated the feasibility of LSST DRP data processing on the cloud with elastic computing resources.
+We implemented AWS backends in the LSST Generation 3 Middleware, allowing processing entirely on the AWS platform using AWS S3 object store (Butler Datastore), PostgreSQL database (Butler Registry), and HTCondor software.
 We analyzed cost usage in our test execution, and estimated cost for larger processing campaigns.
 The direct collaboration between LSST DM, AWS, and HTCondor team members was immensely helpful in achieving the goals. 
 We showcased our progress in a live demonstration in the LSST Project Community Workshop in Aug 2019, as well as a \href{https://confluence.lsstcorp.org/display/DM/Tutorials+at+the+Kavli+workshop}{hands-on tutorial in the Petabytes to Science Workshop} in Nov 2019.
