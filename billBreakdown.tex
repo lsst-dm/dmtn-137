@@ -1,0 +1,24 @@
+\begin{table}[h!]
+\centering
+\begin{tabular} {|r|r|r|r|}
+\hline
+{}&\multicolumn{3}{c|}{Runs} \\ \hline
+\multirow{2}{*}{Category}&\multirow{2}{*}{20191026T041828}&\multirow{2}{*}{20191121T015100}&{20191127T192022}\\
+&&&{20191127T192345}\\ \hline
+{EC2 on-demand instances for master}& 2.88 &1.54 &2.05\\
+{EC2 Spot instances}&94.69&58.55 &52.94\\
+{RDS}&26.38&13.82 & 13.82\\
+{S3 (including other storage cost)}&17.29&13.48& 21.48\\
+{Others/mostly EC2}&18.38 &7.12 &6.37\\ \hline
+{Total}&\$159.62&\$94.51&\$96.66\\ \hline
+\end{tabular} \normalsize
+\caption{Cost breakdown for each run}
+\label{tab:billBreakdown}
+\end{table}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{figures/billBreakdown.png}
+\caption{Cost breakdown for each run}
+\label{fig:billBreakdown}
+\end{figure}

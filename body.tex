@@ -1,166 +1,459 @@
-\section{Introduction}
+\newcommand{\poc}{AWS PoC}
 
-{\bf Eventually, please replace all of the remaining text with your paper text.}
-\vskip 0.4in
+\lstdefinestyle{basherror}{
+  language=bash,
+  showspaces=false,
+  showstringspaces=false,
+  breaklines=true,
+  postbreak=\mbox{\textcolor{red}{$\hookrightarrow$}\space},
+  basicstyle= \tiny \ttfamily
+}
 
 
-The LSST Construction Project team needs to document the as-built hardware and software
-(see LSE-79 and LSE-390 for details). Although this activity will likely continue well into the operations phase, the majority 
-of anticipated documents will be necessary to enable efficient and robust early science with the LSST 
-facility and thus must be available, at least in a draft form, by the first data release. 
+\lstdefinestyle{sqlprompt}{
+  language=SQL,
+  showspaces=false,
+  showstringspaces=false,
+  breaklines=true,
+  postbreak=\mbox{\textcolor{red}{$\hookrightarrow$}\space},
+  numbers=left,
+  numberstyle=\tiny,
+  commentstyle=\color{gray},
+  basicstyle=\tiny \ttfamily,
+}
 
-As a first step, we are now assembling teams that will be in charge of delivering these documents.
-An initial paper list collated by subsystem leaders includes about 40 papers that will be submitted 
-to relevant professional journals. Therefore, this deliverable represents a major undertaking
-and we need to start early. In addition, the commissioning period will be shorter than anticipated 
-due to various delays in construction  and thus the time to complete these papers will be
-shorter, too. Although most of these papers cannot be finished before the end of construction 
-because they will require analysis of LSST commissioning data, we can significantly mitigate
-the risk that they will never be finished by starting early. The early start will also help 
-mitigate another source of stress for the team during the busy commissioning phase. 
 
- 
-\section{Initial Plan} 
+\section{Background}
 
-The subsystem leaders have assembled an initial list of papers, listed in Appendix. 
-It is likely that this list will evolve with time. 
-Each paper has an editor assigned to it. Each editor is meant to be a team leader
-who will be initially responsible for the completion of the assigned paper (or perhaps 
-until somone else from the team assumes this leadership role). The editor is not 
-necessarily the team member who will do most of the required work, or who will 
-eventually become the first author. Both issues will be handled by on an individual team basis. 
+In April 2019, LSST Data Management (DM) began a proof of concept (PoC) project with the Amazon Web Services (AWS) and HTCondor teams to explore whether a cloud deployment of the LSST Data Release Production (DRP) is feasible.
+The execution plan is in \citeds{DMTN-114}.
+For this project AWS granted us credits to use their platform.
+The team met biweekly to discuss progress and plans.
 
-\subsection{The timeline} 
+In this document we report on the work carried out, results obtained, and lessons learned with respect to the technologies used, the LSST code base, and the overall PoC process.
+We first list the relevant technologies in Sect \ref{sec:tech}, and Sect \ref{sec:arch} describes how they were used to execute the DRP workflow.
+In Sect \ref{sec:approach} we discuss certain principles that were helpful in ensuring progress and success.
+Results of scaling tests and cost estimates are given in Sect \ref{sec:results}.
+Finally, potential improvements or extensions and lessons learned are listed in Sect \ref{sec:future}.
 
-We would like to have all the sections that do not depend on commissioning data 
-written and reviewed by February 2021. If we accomplish this goal, we will both
-have easier time completing these papers, and the team will be less stressed during
-the commissioning phase. 
+\section{Technology stack} \label{sec:tech}
 
-Our initial timeline is as follows (the further into the future, the less certain it is): 
-\begin{enumerate} 
-\item 
-Subsystem leads assemble the initial list of papers (DONE)
+\subsection{Amazon Elastic Compute Cloud (EC2)}
+
+\href{https://aws.amazon.com/ec2/}{Amazon Elastic Compute Cloud (EC2)} service provides secure, resizable compute capacity in the cloud based on virtualization technologies.
+The unit of compute resources is an instance, and users can scale up and down the number of instances.
+EC2 instances come with multiple instance types for a configuration of memory, CPU, and storage.
+An Amazon Machine Image (AMI) bundles the Operating System (OS) with required data and configurations into a convenient image that can be launched on any EC2 instance type.
+\href{https://aws.amazon.com/efs/}{Amazon Elastic File System (Amazon EFS)} provides a POSIX-compliant, scalable, elastic NFS file system designed to provide parallel shared access to thousands of AWS compute instances.
+We have used On-demand and Spot instances in the \poc.
+On demand instances cost more but they can not be deallocated by AWS.
+Spot instances are significantly cheaper, but at any time AWS, given a 2 minute warning, can request the compute resources back and deallocate them.
+\subsection{Amazon Simple Storage Service (S3)}
+\href{https://aws.amazon.com/s3/}{Simple Storage Service (S3)} is an object storage that allows massive amounts of unstructured data where each object typically includes data and related metadata and is identified by a globally unique identifier, to be stored and accessed from EC2 instances or elsewhere in a durable and highly scalable way.
+Buckets, organizational units in which related objects are generally stored, enable easier access and privilege administration.
+Access, read, write, delete and other atomic units of action on the objects themselves can be allowed or forbidden at the account, bucket or individual object level.
+Logging is available for all actions on the Bucket level and/or at the individual object granularity.
+It is also possible to define and issue complex conditions on Bucket or object actions which can execute arbitrary actions or workflows, but S3 itself is not POSIX compliant.
+\subsection{PostgreSQL}
+PostgreSQL is one of the most popular open source relational database systems available.
+\href{https://aws.amazon.com/rds/}{Relational Database Service (RDS)} is the AWS cloud service that launches and configures databases with ease.
+The RDS databases can be backed up into snapshots as well as exported to downloadable files on S3.
+Besides no additional licensing fees usually associated with proprietary software, PostgreSQL's off-the-shelf support for spatial primitives needed for astronomy was the primary reason of choosing it.
+While LSST (via Qserv) has demonstrated similar primitives on MariaDB, the ease of deploying PostgreSQL in RDS, the common use of PostgreSQL as a Virtual Observatory (VO) Table Access Protocol (TAP) backend, and the desire to demonstrate portability of the Butler code were desirable factors.
+\subsection{HTCondor}
+\href{https://research.cs.wisc.edu/htcondor}{HTCondor} \citep{Thain:2005:Condor} provides distributed job parallelization and is a powerful batch system for high throughput computing (HTC).
+A HTCondor pool is a collection of compute resources, and HTCondor matches job requests with available resources following their job requirements.
+HTCondor Annex allows HTCondor deployment on cloud resources via acquisition of cloud compute resources external to an existing HTCondor pool.
+A HTCondor pool can have multiple annexes, and each annex manages its own lifecycle.
+Instances allocated by \texttt{condor\_annex} are added to a shared resource pool on which jobs can be scheduled.
+Unused compute resources are automatically deallocated after some set time spent idling.
+HTCondor has been succesfully used by \href{https://aws.amazon.com/blogs/aws/experiment-that-discovered-the-higgs-boson-uses-aws-to-probe-nature}{the HEP Cloud project}, scaling up to 60,000 cores in a multi-region deployment on AWS, and by \href{https://www.linkedin.com/pulse/using-50k-gpus-across-multiple-clouds-icecube-science-igor-sfiligoi}{the IceCube experiment}, where they scaled up to 51,000 GPUs across multiple regions and multiple cloud providers (AWS, Azure, and Google Cloud).
+\subsection{Pegasus}
+\href{https://pegasus.isi.edu/}{Pegasus} \citep{Deelman:2015:Pegasus} is a workflow management system built on top of HTCondor.
+Popular in large-scale scientific computing, it provides command line and API interfaces for scientists to write an abstract workflow independent of the underlying computing infrastructure.
+Pegasus workflows are expressed as Directed Acyclic Graphs (DAGs) where jobs are the nodes and job dependencies are represented by the edges.
+Pegasus utilizes HTCondor DAGMan as its execution engine, but also supports various execution environments and data management strategies.
+\subsection{LSST Software Stack}
+The \href{https://pipelines.lsst.io/}{LSST Science Pipelines Software Stack} is a collection of data processing codes for optical and near-infrared astronomy, and is used for DRP \citep{2019ASPC..523..521B}.
+Besides image processing and astronomical catalog analysis, it includes a middleware layer for data access, task definition and execution.
+The main component of the middleware layer is the Data Butler \citep{2018arXiv181208085J}, a framework that abstracts the underlying data persistence and implementations from Science Pipelines algorithms.
+The Data Butler concepts can be found in \citeds{LDM-463}.
+A Butler data repository is a set of datasets under control of the Data Butler.
+Datasets are referred to via their unique IDs, which are then resolved through a Registry to their locations, file formats and the Python object types.
+The system that persists, reads and potentially modifies the datasets is called the Datastore, and it is usually backed by a shared filesystem.
+The Registry is almost always backed by a SQL database.
+The middleware layer is in the course of a major redesign and refactoring; the new version is known as the Generation 3 Middleware ("Gen3" Middleware; \citeds{DMTN-056}).
+This \poc~added new features in the Generation 3 Data Butler so to allow task execution in the AWS cloud environment.
+The design concepts are described in Sect \ref{sec:arch} and the details of the implementation process are in Appendix \ref{sec:butler}.
+
+
+\section{Architecture design} \label{sec:arch}
+
+
+The system at the end of the PoC is shown in Figure~\ref{fig:arch}.
+All components are hosted on the AWS platform.
+
+\begin{figure}
+  \centering
+  \includegraphics[width=\textwidth]{figures/arch}
+  \label{fig:arch}
+  \caption{Diagram of the AWS PoC system architecture.}
+\end{figure}
+
+AMIs containing the LSST Software Stack, Pegasus, and a configured HTCondor installation are pre-built in two flavors: master and worker.
+These contain the complete environment required to run DRP workflows and scale them out with HTCondor.
+The user launches an on-demand EC2 instance using the master AMI to be the submit host and the central manager of the HTCondor pool.
+The user logs in to this master to control the workflow execution.
+
+The LSST DRP workflow in the Generation 3 Middleware is represented as a Directed Acyclic Graph (DAG) known as a Quantum Graph.
+In the Generation 3 Middleware, a Pipeline Task represents a configured sequence of a data processing operation, and defines the inputs and outputs used in conjunction with the Data Butler.
+Each executable unit, known as a Quantum, represents a single execution of a particular Pipeline Task with particular inputs producing particular outputs.
+The Quantum Graph is aware of the Quantum dependency and determines the execution workflow.
+For simplicity we map each Quantum to a standalone job, although this may not be optimal for performance (grouping multiple Quanta into a single job can reduce or amortize overhead).
+Pegasus is used to submit the workflow to HTCondor as well as monitor the workflow execution.
+Pegasus adds other necessary jobs, such as data transfer, to the executable workflow.
+HTCondor DAGMan is the workflow execution engine behind Pegasus and controls the processes.
+
+Compute resources are procured from the master node via \texttt{condor\_annex} by targeting the worker AMI.
+\texttt{condor\_annex} can request on-demand or spot instance fleets.
+
+LSST Pipeline jobs are executed on the worker instances; they use the Data Butler for data access.
+New Data Butler backends were implemented during the PoC, including the S3 Datastore and the PostgreSQL Registry.
+
+The Butler datastore is located in an S3 Bucket and follows the same hierarchical structure that POSIX datastore does.
+Consumed and produced datasets are read and written directly from S3 as bytes, whenever possible, and only downloaded to temporary files for objects whose formatters do not support streaming.
+Since the directory structure is preserved by the S3 datastore the entire data repository is trivially transferable between the cloud and a local filesystem.
+
+The Butler registry is an RDS PostgreSQL database that keeps track of all LSST science files.
+Files that are not managed by Data Butler are managed by the Condor File IO via Pegasus.
+These include the Data Butler configuration file, pipeline definition (Quantum) files, and the log files.
+The master instance serves as the staging site for these files.
+Pegasus and HTCondor manage data transfer of these files between the master and the workers; instances do not share a filesystem.
+
+
+\section{Approaches and strategies} \label{sec:approach}
+
+\poc's goal is to demonstrate that running Data Release Production (DRP) on AWS is possible.
+The following approaches were taken.
+
+\subsection{Progress in phases}
+
+\citeds{DMTN-114} proposed development phases that broadly outlined how progress can be made and when performance would be monitored.
+The outlined plan was to move the execution to AWS without any backend modifications first and then gradually switch out each component to AWS.
+
+Before this \poc, the DRP execution relied on a shared POSIX-compliant filesystem.
+In the first phase Amazon EFS was used as its replacement.
+The data repository, including a POSIX datastore and a SQLite registry, was entirely located on EFS, which was mounted to each of the EC2 compute instances.
+
+Subsequently, support for the S3 datastore eliminated the need of EFS, and the PostgreSQL RDS replaced the SQLite registry.
+Also, a Personal HTCondor Pool on an single EC2 instance was used before we tested the capability to launch new EC2 instances as the HTCondor workers and execute jobs.
+This approach allowed us to debug and adapt more smoothly, ensuring we always had a fallback option while integrating and testing new features and components.
+
+\subsection{Test minimally before scaling up}
+
+Small tasks are tested before workflows of jobs, and small workflows are tested before large workflows.
+The canonical \href{https://github.com/lsst/ci\_hsc}{ci\_hsc} dataset ($\sim$8GB) and the accompanying CI workflow (156 jobs) provide a minimal HSC test dataset and a representative DRP workflow and algorithms.
+This test workflow is an important step in integrating new changes.
+For larger scale tests we used the \href{https://jira.lsstcorp.org/browse/DM-11345}{HSC-RC2 dataset} ($\sim$1.5TB and 27075 jobs).
+
+\subsection{Use Generation 3 Middleware}
+
+One of the mandates in the \poc~was to use the Generation 3 Middleware (\citeds{DMTN-056}), which has been designed to ease the DRP execution and automation compared to the previous Generation 2 Middleware.
+Generation 3 Middleware design is more readily extensible to alternative backends, compared to Generation 2 Middleware.
+As it was still relatively early in its implementation, findings in the \poc~were fed back to the Generation 3 Middleware team and influenced its development.
+
+On the other hand, as during the \poc~the Generation 3 Middleware was under active development, backwards incompatible changes occurred often, and the APIs were unstable.
+Furthermore, there were no integration tests when the \poc~started, and unit test coverage was incomplete.
+Hence, changes often broke functionality.
+Lack of a good integration test for the code written for this \poc is still a major concern going forward.
+
+Keeping this in mind, we decided not to always follow the bleeding edge version of the middleware, updating only when necessary, such as for important bug fixes.
+We believe that the specific stack versions used should not have strong impacts on the \poc~conclusions regarding the feasibility of cloud deployment of DRP.
+
+\subsection{Focus on end-to-end execution}
+
+Potential optimizations and further investigations were identified throughout the PoC project but were not carried out.
+Some ideas are described in Sec \ref{sec:future}.
+
+
+\section{Execution results of the tract-sized DRP workflow}
+\label{sec:results}
+
+After successful execution with the \texttt{ci\_hsc} test dataset, we scaled up the run to one full tract of the HSC-RC2 dataset, as defined in \jira{DM-11345}.
+The full HSC-RC2 input repository contains 108108 S3 objects and totals $\sim$1.5TB, including 432 raw visits in 3 tracts and $\sim$0.7TB of calibration data.
+In this project, we targeted tract=9615 which was executed with the Oracle backend on the NCSA cluster in July 2019 as the S2019 milestone of the Generation 3 Middleware team; see \jira{DM-19915}.
+In terms of raw inputs, tract=9615 contribute around 26$\%$, or $\sim$0.2 TB, of the raw data in the HSC-RC2 dataset.
+We ignored patch 28 and 72 due to a coaddition pipeline issue as reported in \jira{DM-20695}.
+A Butler repo was first made on NCSA's GPFS with a sqlite registry, and then transferred to the S3 bucket and the RDS instance.
+All tract-sized runs reported in this DMTN used LSST Software Stack release \texttt{w\_2019\_38}.
+The version of HTCondor was 8.9.3.
+
+The workflow contains 1 initialization job and 27074 regular PipelineTask jobs.
+Science configurations from \url{https://github.com/lsst-dm/gen3-hsc-rc2} were used to generate a Quantum Graph.
+We transformed the Quanta into jobs in the Pegasus format with one-to-one mapping.
+The breakdown of the tasks in the workflow is in Table \ref{tab:taskBreakdown}.
+
+\input{taskBreakdown}
+
+Generally speaking, there are two types of jobs: small-memory and large-memory jobs.
+Small memory jobs take less than 4GB per jobs, and large memory jobs can take up to $\sim$30GB per job.
+For simplicity, we consider all jobs of MakeWarpTask, CompareWarpAssembleCoaddTask, DeblendCoaddSourcesSingleTask, and MeasureMergedCoaddSourcesTask as large-memory jobs.
+In terms of total runtime, around 45\% of the jobs are large-memory jobs.
+For large-memory jobs we require~$\sim$30GB of memory in their job requirements, and HTCondor only matches jobs to machines with sufficient memory.
+AWS instances come with different flavors and the \texttt{r} family provides memory optimized instances with $\sim$8GB per core.
+The worker instances are configured to be HTCondor partitionable slots which dynamically splits resources and creates new slots to suit the jobs.
+
+The submit host is an AWS on-demand instance, typically \texttt{m5.large} or larger.
+Spot fleets are requested after the Pegasus workflow start.
+Typically \texttt{m4} or \texttt{m5} instances are used for the single frame processing or other small-memory jobs, and \texttt{r4} instances are used for large-memory jobs.
+After the workflow finishes, remaining running Spot instances may be terminated on the AWS console.
+Besides the 27075 pipetask invocations, Pegasus added 2712 data transfer jobs and one directory creation job.
+The total output size from the tract=9615 workflow is $\sim$4.1 TB with 74360 S3 objects.
+
+\subsection{Notes from the successful runs}
+
+Details of all runs are summarized in \jira{DM-21817}, and in the following we summarize the successful runs only.
+Table \ref{tab:runSummary} lists the runtime as reported by Pegasus tools.
+
+\input{runSummary}
+
+In the first successful run \texttt{20191026T041828+0000}, a fleet of 40 \texttt{m5.xlarge} instances were used for single frame processing and then a fleet 50 \texttt{r4.2xlarge} memory optimized instances for the rest.
+A \texttt{m5.large} on-demand instance served as the master.
+The single frame processing part finished in~$\sim$4 hours; coadd and beyond took~$\sim$16 hours.
+In this run, the memory requirement of the large-memory jobs was slightly higher than half of a \texttt{r4.2xlarge}, resulting in instance resources not fully used for some time.
+This run spanned two billing days.
+
+In the repeated run \texttt{20191121T015100+0000}, the master was also a \texttt{m5.large} on-demand Instance.
+Fleets containing 75 \texttt{m4.xlarge} instances and 50 \texttt{r4.2xlarge} were launched.
+The memory requirement of the large-memory jobs was adjusted down slightly so that two such jobs can run on a \texttt{r4.2xlarge} simultaneously.
+Due to the larger fleet, the whole workflow finished within 12 hours in one bill day.
+
+We then ran two of the same workflow graphs \texttt{20191127T192022+0000} and \texttt{20191127T192345+0000} simultaneously, simulating a larger input size.
+The master was a \texttt{m5.2xlarge} on-demand instance.
+A Spot fleet containing 150 \texttt{m5.xlarge} instances ran the single frame processing for the first three hours, and a fleet of 150 \texttt{r4.2xlarge} instances ran the rest of the workflow.
+600 jobs ran simultaneously during single frame processing.
+Larger fleets were used to help finishing the workflows in a shorter wallclock time.
+This run spanned two billing days.
+
+\subsection{Cost analysis}
+
+The main components of the charges come from (a) EC2 Spot instances, (b) EC2 on-demand instances, (c) S3 storage, (d) RDS, and (e) others.
+We extract and analyze information using the AWS Cost Explorer tools.
+
+\begin{enumerate}
+\item \textbf{EC2 Spot instances}.
+EC2 Spot instances are the workers that execute the processing jobs, so this essentially is the cost of the compute power and scales with the compute resources needed to accomplish the processing campaign.
+The exact pricing for Spot instances varies based on supply and demand of the overall EC2 capacity.
+For instances used in our test runs, Spot instances cost around 20-25\% of the on-demand instance price.
+Charges continue as long as the instances are up and running, even if no jobs are assigned to the instances.
+One hour of Spot instance typically costs \$0.045 for \texttt{m5.xlarge} and \$0.08 for \texttt{r4.2xlarge}.
+Different mix of instance types could affect the performance as well as the total cost.
+Considering the idle time as necessary overheads, we paid $\sim$\$0.035 per active CPU hour in average.
+We could pay less with better workload control and instance lifecycle control.
+
+\item \textbf{On-demand EC2 instance}.
+We use an on-demand EC2 instance to serve as the submit host and the central workflow manager because we do not want it terminated by AWS.
+The current price of m5.xlarge on-demand instances is \$0.192 per hour.
+
+\item \textbf{RDS}.
+Throughout our test runs we used a \texttt{db.m5.xlarge} instance, which has 4 vCPU and 16 GB of memory, to host the Butler Registry of the HSC-RC2 repository.
+We are aware this DB instance is more powerful than we usually need but we keep it running.
+The charge is therefore proportional to the span of time.
+For simplicity we count all RDS charge during the runs towards the cost of the runs, which is an overestimate because we also host other small database instances for testing purposes.
+For example, a \texttt{db.t2.micro} has been running alongside to host a Butler Registry for the \texttt{ci\_hsc} repo which costs \$1.3 per day.
+
+\item \textbf{S3}.
+The charge of S3 is dominated by the data storage cost, which is \$0.023 per GB per month for the first 50TB.
+This means it costs $\sim$\$1.2 per day storing the input repo ($\sim$1.5TB) alone, and $\sim$\$3.1 per day storing one set of the tract=9615 workflow outputs ($\sim$4.1TB).
+Note that outbound data transfer is not free at AWS.
+At the rate of \$0.09 per GB, transferring one tract=9615 output dataset out of AWS would cost~$\sim$\$370.
+We also incur charges per quantity of requests, which cost $\sim$\$4.3 for each run of the tract=9615 workflow.
+
+\item \textbf{Other charges}.
+The majority of other charges come from the Elastic Block Store (EBS) that provides storage for use with EC2.
+This includes SSD-backed volumes and snapshots, both of which are priced per size and time.
+Other charges are relatively small, such as a Business Support plan to get help from AWS engineers, and CloudWatch for additional monitoring information.
+In our accounting here this also includes charges from instances used in work indepedent of the workflow execution, so this should be seen as an upper bound.
+
+\end{enumerate}
+
+Table \ref{tab:billBreakdown} and Figure \ref{fig:billBreakdown} provide an overview of the cost breakdown for each run.
+This includes all charges incurred on the billing days during which the runs were done, so this can be seen as an upper bound.
+The price dropped significantly from the first run to the rest, mostly due to operator knowledge from the workflow execution to decrease instance idle time.
+We have not optimized the overall usage; more discussions are in Sect \ref{sec:future}.
+
+\input{billBreakdown}
+
+\subsection{Cost comparision and projection}
+
+The raw input exposures in the HSC-RC2 tract=9615 workflow contains $\sim$0.2TB from 112 visits.
+Only the CCD images overlapping the tract area were included in the workflow; so only $\sim$122 GB of raw inputs are used.
+Compared to one night of LSST data in full operations, this is only $\sim$11\% in the number of visits, or $\sim$2\% in the data volume.
+In our test runs, one tract of the DRP test workflow cost around \$95.
+
+The same tract of data were processed on the NCSA Verification Cluster using Generation 2 Science Pipelines from the same \texttt{w\_2019\_38} release (\jira{DM-21386}).
+The equivalent workflow, including single frame, coadd, and multiband processing, took 17.8 node-hours.
+The cost of the current NCSA Verification Cluster (not including labor) is $\sim$\$0.017 per core-hour, or $\sim$\$0.408 per node-hour (\citeds{DMTN-135}).
+Therefore we may think that the Generation 2 version of the same processing cost \$7.26.
+This execution time was shorter than the average tract exeuction time, 59 node-hours per HSC-WIDE tract, in the S18 HSC-PDR1 reprocessing (\url{https://confluence.lsstcorp.org/display/DM/S18+HSC+PDR1+reprocessing}).
+But that run was based on a release from 2018, and the performance is known to vary.
+\url{https://confluence.lsstcorp.org/display/~sthrush/Node+Utilization+for++HSC-RC2+Reprocessing+Jobs} provides an example how execution time of HSC-RC2 changed between different versions of the LSST Stack in 2018.
+The performance differences between Generation 2 and Generation 3 Science Pipelines is not well understood either.
+
+Another data point is the same HSC-RC2 tract=9615 workflow processed on the NCSA Verification Cluster and Oracle database using Generation 3 Science Pipelines from the \texttt{w\_2019\_28} release (\jira{DM-19915}).
+It took 8.8 hours on 10 nodes of the NCSA Verification Cluster; the nominal cost was then $\sim$\$36.
+We note that the cumulative job wall time was 36.3 days in the \texttt{w\_2019\_28} run, much shorter than our run on AWS with \texttt{w\_2019\_38} where the cumulative job wall time was around 62 days (Table \ref{tab:runSummary}).
+In the newer LSST Stack versions there are more jobs in total for this workflow.
+But we do not know if the difference is dominated by the LSST Stack versions, infrastucture, or other factors.
+
+Following \citeds{DMTN-135} we scale the cost with the input data size.
+To estimate cost we multiply the nominal cost per input data by the estimated size of LSST data.
+In one of our tests, we doubled the input size to explore how it scales up.
+It scaled roughly linearly in cost and total compute resources.
+In wallclock time, it did not take longer because more EC2 instances could be deployed.
+For LSST DRP, there will be annually 1911 TB of raw science data with lossless compression.
+Based on an input size of 122 GB and a cost of \$95 from our DRP test workflow, if the scaling relationship holds, the LSST processing would cost $\sim$\$1.5 million for the first year of DRP.
+Note that this is a very crude estimate from a simple scaling.
+Also, there are many ways to improve the efficiency and the \poc~project did not put effort into cost optimization.
+AWS has pre-purchase plans and other discounts that may help further reducing the cost.
+
+
+\section{Potential improvements and more lessons learned} \label{sec:future}
+
+In this session we describe issues we have encountered during the execution and ideas on how to improve the code or the instance and workflow management.
+We discuss both intermittent failures that we understand and expect to occasionally encounter even in production, as well as higher level design or tooling improvements.
+
+\subsection{Intermittent failures}
+
+Failures can occur due to non-pipeline issues such as underlying infrastructure.
+The fault rate may be small but as we scale up we start to encounter some.
+Some examples are listed below; most seem transient.
+
+
+\begin{enumerate}
+\item Database connection timeout.
+Attempting to connect to the RDS instance failed.
+\begin{lstlisting}[style=basherror]
+sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) could not connect to server: Connection timed out
+\end{lstlisting}
 \item
-Setup latex templates and email exploders (lsst-constrpapers) (DONE)
-\item
-Schedule the first telecon to discuss task, overall plan and timeline (Oct 2019).
-\item 
-Delivery of paper outlines and the second telecon (Jan 2020). Each paper
-outline should at least contain the list of all sections, their lead authors, and
-a few sentences about the section scope. Overachievers can add a list of figures etc.
-for extra credit. 
-\item
-First rough draft of sections that can be written without having the LSST commissioning
-data and the third telecon (June 2020). These drafts should at least include subsection
-structure, lists of planned tables, figures, rough text,  and identification of any impediments 
-to make the Oct. deadline for drafts ready for review (so that we can replan if need be). 
-\item 
-Sections that can be written without having the data ready for an internal project review and
-the fourth telecon (Nov 2020). 
-\item
-Reviews available and the fifth telecon (Feb 2021)
-\item
-Implementation of the reviewers' comments (from Feb 2021 until first light) 
-\item 
-Final drafts, including sections that depend on LSST data, available for
-review and the sixth telecon (Aug 2022)
-\item
-Implementation of the reviewers' comments (from Aug 2021 until the start of operations, 
-planned for Oct 3, 2022).  Proceeding with submissions, details TBD...
+After a file was added to a S3 bucket and during ingestion in the Butler registry, S3 reported a file does not exist.
+This will be fixed in \jira{DM-22201}.
+\begin{lstlisting}[style=basherror]
+FileNotFoundError: File at 's3://hsc-rc2-test1-hfc/repo-w38/hfc30/srcMatchFull/1316/srcMatchFull_1316_24_HSC_17.fits' does not exist; note that paths to ingest are assumed to be relative to self.root unless they are absolute.
+\end{lstlisting}
+\item S3 read timeout before science processing started in a job.
+\begin{lstlisting}[style=basherror]
+botocore.exceptions.ReadTimeoutError: Read timeout on endpoint URL: "None"
+\end{lstlisting}
+\item Worker out-of-memory while running jobs.
+For the same pipeline and input data, this is reproducible.
+But we may not always have accurate memory usage prediction for any input data before running the jobs.
+We can configure HTCondor to increase the memory requirement in the retry.
+However sometimes OOM crashed the instances and appeared as a network issue which is not a desirable behaviour.
+\item Launching HTCondor Annex workers failed with connectivity check collector issues.
+\begin{lstlisting}[style=basherror]
+Connectivity check found wrong collector (f5fc15573ffb9c93 vs a006066e73c412da).
+\end{lstlisting}
+\item Dataset ConflictingDefinitionError.
+In rare occassions we observed dataset conflict errors from the registry without obvious reasons such as duplicate collection names or retries.
+\jira{DM-21201} has refactored the code to robustify such transactions.
+It could also be related to Spot instances getting terminated;
+see next section on failure recovery.
+\item Database instance not sized big enough.
+We have seen
+\begin{lstlisting}[style=basherror]
+psycopg2.OperationalError: out of shared memory
+\end{lstlisting}
+and
+\begin{lstlisting}[style=basherror]
+sqlalchemy.exc.OperationalError: (psycopg2.OperationalError) FATAL:  remaining connection slots are reserved for non-replication superuser connections
+\end{lstlisting}
+These were resolved by increasing \texttt{max\_locks\_per\_transaction}, the cache size, and \texttt{max\_connections}.
 \end{enumerate}
 
 
+\subsection{Alternative architecture designs}
+
+%In this \poc, we discussed different architecture designs but did not pursue all of them due to time constraints.
+
+One prominent idea was to use HTCondor utilities to transfer files from and to S3, rather than relying on the Data Butler to communicate directly with S3.
+In this design HTCondor controls all file transfers, and all datasets are declared in the execution workflow.
+This design is enabled by a data transfer plug-in that was recently added to HTCondor.
+In each job there would be a local POSIX data repository for all data access.
+Utilities would be needed for determining, based on the Quantum Graph, the URLs of datasets that need to be transferred; for setting up the local Butler registry; and for ingesting the HTCondor-transferred S3 datasets into the main Butler registry.
+This additional work was not able to be scheduled as part of the PoC.
+A benefit of this approach is the potential for optimizing bulk data transfers.
+
+With respect to the database, we discussed the possibility of each job having its own fast local SQLite registry.
+After each job finishes, registries are then collated into the central database.
+This is a subset of the previous design alternative, with only the registry being localized and not the datasets.
+Besides simplifying failure recovery, another benefit is to avoid potential bottlenecks related to large scale parallel SQL transactions by bundling multiple transactions together and handling database connections in a centralized manner.
+This envisions a fully shared-nothing architecture, but implementing this requires more thorough design work in conjunction with the Generation 3 Middleware development.
+Refactoring existing code may be needed, for example, regarding how conflict resolution is used in inserting new data records to the registry.
 
 
-\section{Some technicalities: author list and standard LSST references} 
+\subsection{Tooling improvements}
 
-Thank you Tim Jenness and Wil O'Mullane for helping with templates! 
+More generally, improvements in and tooling rise to prominence.
+We discuss some ideas below.
 
-\subsection{The LSST LaTeX Classes}
+\begin{enumerate}
+\item \textbf{Better job failure recovery strategies}.
+Our jobs write directly to the S3 bucket and the RDS instance via the Data Butler.
+If a job fails in a state that partial outputs are written but the job does not fully finish, recovery is not trivial.
+Such failed partial writes are handled on the registry side (the database), but on the datastore side they are handled by wrapping failable transactions in a transaction context manager.
+The context manager takes a callable that then proceedes with the cleanup.
+For S3 datastore, at the time of writing, the utility functions preforming the cleanup have not yet been written (in progress).
+The larger issue with job failures is the lack of DRP workflow failure handling.
+There is no way yet to reliably pause the DAG execution, overwrite files from a failed job, or other ways to handle such scenarios.
+\item \textbf{Container based software stack}.
+We have found it tricky to handle the LSST stack installation, dependencies, and environments to be used together with other software.
+One possible way to avoid the headaches is to use docker based stack releases.
+This may also ensure consistency of software on the master and the workers more easily, as well as improve shareability.
+\item \textbf{Better cluster management tooling}.
+Our current operational approach requires manually deploy suitable types and sizes of the EC2 fleets based on our understanding of the overall workload.
+Strategies on the instance choices and timing of requests therefore affect the cost, and manual adjustments are usually needed to reduce cost.
+Annex can remove idle instances out of the condor pool but may not terminate the instances until the lease expires.
+Also once instances drop out of the pool they can't be added back easily.
+Tooling become essential for the operations.
+For example we may use scripts to auto-scale the Annex condor pool based on the current demand for resources, or based on the predicted resource demands from the Quantum Graph.
+The execution overheads from idle instances may be mitigated by utilizing some of other AWS services, such as \href{https://aws.amazon.com/swf/}{Simple Workflow service (SWF)} or \href{https://aws.amazon.com/batch/}{AWS Batch} service.
+This may bind the solutions strictly to AWS, a disadvantage of such adoption.
+\item \textbf{End-to-end CI}.
+This should include all operational components to do an end-to-end run.
+This includes Butler repo generation, registry generation, Quantum Graph generation, job composition, workflow translation, job execution, and so on.
+Many of the components were in the development phase and workarounds were used during the PoC.
+For example a native Generation 3 ingestion was not available so a Gen2-to-Gen3 conversion was needed, and in fact many of the registries were migrated to RDS partially manually by executing bespoke scripts made specifically for such purpose that are not generally portable cross backwards-incompatible changes to the Middleware code.
+As we put together the pieces, the absence of to do so in an automatic fashion became a key burden.
+In retrospect we probably should have invested more time to automate the end-to-end workflow, even with workarounds, but the efforts were plagued by the lack of a canonical ingest tool.
+Additionally, the DM team has concerns in the long execution time from overly-inclusive CI tests.
+Adding S3 datastore CI tests to the default CI suite would double the total CI execution time without parallelization.
+\item \textbf{Credential handling}.
+Security concerns received special attention in the \poc.
+Natively none of the Middleware code requires the credentials to exist on the instance in plain text, even though they support that option.
+Authentication can be performed via \href{https://docs.aws.amazon.com/IAM/latest/UserGuide/id_roles.html}{AWS Identity and Access Management (IAM) Roles} to both S3 and RDS services.
+IAM Role authentication is more secure than other authentication methods, but requires understanding of how AWS security and permissions work and sometimes requires tedious setup.
+For example for RDS IAM access, an account admin needs to create the IAM Role, then the DB admin needs to log in to the DB interactively and create a role with rds\_iam permissions and also grant usage priviledges on the DB schema, tables etc.
+While we have tried an IAM setup in the \poc~we often stored credentials onto the master and worker instances in \texttt{\~{}/.lsst/db-auth.yaml}, \texttt{\~{}/.aws/credentials} or in environmental variables which is not the best practice of handling the access.
+Utilities and tooling that help speed up such setup would be highly desireable.
 
-Please see the installation instructions\footnote{\url{https://lsst-texmf.lsst.io/install.html}} 
-for lsst-texmf. Once you have it installed, you should be able to compile your paper
-using make. 
+\item \textbf{Robustify and give better error messages}.
+It has been observed that sometimes the error messages could be misleading.
+Also, scaling tests of a more substantial size are critical to find breaking points and bottlenecks.
+\item \textbf{Other AWS services}.
+Services such as \href{https://aws.amazon.com/batch/}{AWS Batch} and \href{https://aws.amazon.com/glue/}{AWS Glue} could potentially offer powerful tools to our use cases.
+AWS Batch provides EC2 lifecycle management and workflow control, which may reduce the cost of our EC2 usage.
+Recent releases of Pegasus have provided some support of job execution on AWS Batch, and further integration is expected.
+AWS Glue provides extract, transform, and load (ETL) services with respect to our S3 storage usage, which may improve our data warehousing experience and form Data Lake.
 
-\subsection{How to handle author list?} 
+\end{enumerate}
 
-Authors come from the authors.yaml file --  find the author ids in the lsst-texmf/etc/authordb.yaml - use db2authors to get the authors and institutes from the db. 
+\section{Summary}
 
-{\bf XXX Wil, the above is unclear: need more detail about how to use db2authors,
-what is its output and what to do with it...} 
-
-
-\subsection{How to handle LSST standard references?} 
-
-The papers should cite standard LSST references\footnote{See \url{https://github.com/lsst-pst/LSSTreferences}}, 
-where appropriate. For the usage, please see below.  These examples all use the ADS handle, unless they are 
-project docs then the use the project handle like LSE-17.
-
-All are on the lsst-texmf which you can get from \url{http://lsst-texmf.lsst.io}
-
-
-\subsubsection{LSST System and Science}
-
-The LSST system (brief overview of telescope, camera and data management subsystems),
-science drivers and science forecasts are described in:
-
-\begin{itemize}
-\item LSST Science Requirements Document: \cite{LPM-17}.
-\item LSST overview paper: \cite{2008arXiv0805.2366I}.
-\item LSST Science Book: \cite{abell2009lsst}.
-\end{itemize}
-%------------------------------------------------------------------------------
-
-
-\subsubsection{Simulations}
-
-The LSST simulations are described in a series of papers. Use of the LSST simulations should cite the LSST simulations overview paper \cite{2014SPIE.9150E..14C} and the specific simulation tools used:
-
-\begin{itemize}
-\item LSST Catalogs (CatSim): \cite{2014SPIE.9150E..14C}
-\item Feature-Based Scheduler: \cite{2018arXiv181004815N}
-\item Operations Simulator (OpSim): Scheduler \cite{2016SPIE.9910E..13D}, SOCS \cite{2016SPIE.9911E..25R}
-\item Metrics Analysis Framework (MAF): \cite{2014SPIE.9149E..0BJ}
-\item Image simulations (Phosim): \cite{2015ApJS..218...14P}
-\item Sky brightness model: \cite{2016SPIE.9910E..1AY}
-\item LSST Performance for NEO (or moving object) discovery: \cite{2018Icar..303..181J}
-\end{itemize}
-%------------------------------------------------------------------------------
-
-
-\subsubsection{Data Management}
-
-LSST data management system and the data products are described in:
-
-\begin{itemize}
-  \item The LSST Data Management System: \cite{2015arXiv151207914J}
-  \item Data Products Definition Document: \cite{LSE-163}
-\end{itemize}
- %------------------------------------------------------------------------------
-
-
-\subsubsection{Camera}
-
-\begin{itemize}
-   \item Design and development of the LSST camera: \cite{2010SPIE.7735E..0JK}
-\end{itemize}
-%------------------------------------------------------------------------------
-
-
-\subsubsection{Telescope and Site}
-
-\begin{itemize}
-   \item Telescope and site overview and status in 2014:  \cite{2014SPIE.9145E..1AG}
-\end{itemize}
-%------------------------------------------------------------------------------
-
-\subsubsection{System Engineering}
-
-\begin{itemize}
-   \item LSST systems engineering: \cite{2014SPIE.9150E..0MC}
-   \item System verification and validation: \cite{2014SPIE.9150E..0NS}
-\end{itemize}
-%
-
-
+In this \poc~project we have demonstrated the feasibility of LSST DRP data processing on the cloud with elastic computing resources.
+We implemented AWS backends in the LSST Generation 3 Middleware, allowing processing entirely on the AWS platform using AWS S3 object store (Butler Datastore), PostgreSQL database (Butler Registry), and HTCondor software.
+We analyzed cost usage in our test execution, and estimated cost for larger processing campaigns.
+The direct collaboration between LSST DM, AWS, and HTCondor team members was immensely helpful in achieving the goals. 
+We showcased our progress in a live demonstration in the LSST Project Community Workshop in Aug 2019, as well as a \href{https://confluence.lsstcorp.org/display/DM/Tutorials+at+the+Kavli+workshop}{hands-on tutorial in the Petabytes to Science Workshop} in Nov 2019.
+Ideas of improvements necessary for larger-scale production were identified and discussed.
